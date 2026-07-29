@@ -219,13 +219,14 @@ const rand = (min, max) => Math.floor(Math.random() * (max - min + 1)) + min;
 
 /** Susun isi pesan Auto-Teguran (Bad Cop) untuk PPL/petugas. */
 function buildTeguran(row) {
+  const survei = row.nama_survei || 'pendataan BPS';   // ISU 1: nama survei dari data, bukan hardcode
   return (
     `⚠️ *TEGURAN OTOMATIS — BPS Karangasem*\n\n` +
     `Yth. Saudara *${row.nama_petugas}*,\n\n` +
-    `Responden *${row.nama_usaha}* mengonfirmasi *TIDAK ada kunjungan fisik*.\n\n` +
+    `Responden *${row.nama_usaha}* pada kegiatan *${survei}* mengonfirmasi *TIDAK ada kunjungan fisik*.\n\n` +
     `Mohon segera *kunjungi ulang* lokasi tersebut dalam *1x24 jam* dan laporkan hasilnya kepada PML. ` +
     `Abaikan pesan ini bila kunjungan sudah dilakukan dan segera koordinasi dengan PML.\n\n` +
-    `Pesan ini dibuat otomatis oleh Sistem Penjaminan Kualitas SE2026.`
+    `Pesan otomatis dari SWARA — Sistem WhatsApp Responsif & Akurat.`
   );
 }
 
@@ -240,12 +241,13 @@ async function sendPlain(rawNumber, text) {
 
 /** Susun isi pesan verifikasi untuk satu responden. */
 function buildMessage(row) {
+  const survei = row.nama_survei || 'pendataan BPS';   // ISU 1: dinamis per kegiatan
   return (
-    `Halo dari *BPS Karangasem*.\n\n` +
-    `Apakah benar petugas *${row.nama_petugas}* telah mewawancarai Anda ` +
-    `(usaha: *${row.nama_usaha}*) hari ini?\n\n` +
+    `Halo dari *BPS Kabupaten Karangasem*.\n\n` +
+    `Dalam rangka *${survei}*, apakah benar petugas *${row.nama_petugas}* telah ` +
+    `mewawancarai Anda (usaha: *${row.nama_usaha}*) hari ini?\n\n` +
     `Balas *1* jika YA, balas *2* jika TIDAK.\n\n` +
-    `Terima kasih atas partisipasi Anda dalam Sensus Ekonomi 2026. 🇮🇩`
+    `Terima kasih atas partisipasi Anda. 🇮🇩`
   );
 }
 
@@ -281,9 +283,11 @@ async function _kirimBanyak(rows, minDelay, maxDelay) {
  * Kirim ke SEMUA responden berstatus PENDING (jeda 6-15 detik).
  * @returns {Promise<{total:number, sukses:number, gagal:number}>}
  */
-async function blastPending() {
+async function blastPending(rows) {
   if (!ready) throw new Error('Gateway WA belum siap. Scan QR terlebih dahulu.');
-  return _kirimBanyak(db.getPending(), 6000, 15000);
+  // ISU 3: app.js mengirim baris yang SUDAH ter-scope (+nama_survei). Fallback ke global bila kosong.
+  const target = Array.isArray(rows) ? rows : db.getPending();
+  return _kirimBanyak(target, 6000, 15000);
 }
 
 /**
@@ -292,11 +296,11 @@ async function blastPending() {
  * ATURAN ANTI-BANNED: jeda acak 5-8 detik antar pesan.
  * @param {number[]} ids
  */
-async function blastByIds(ids) {
+async function blastByIds(ids, rowsScoped) {
   if (!ready) throw new Error('Gateway WA belum siap. Scan QR terlebih dahulu.');
-  const rows = db
-    .getByIds(ids)
-    .filter((r) => r.status === 'PENDING' || r.status === 'GAGAL'); // hindari kirim ulang yang sudah dijawab
+  // ISU 3: pakai baris ter-scope dari app.js bila diberikan (mencegah blast lintas-PML)
+  const src = Array.isArray(rowsScoped) ? rowsScoped : db.getByIds(ids);
+  const rows = src.filter((r) => r.status === 'PENDING' || r.status === 'GAGAL');
   return _kirimBanyak(rows, 5000, 8000);
 }
 

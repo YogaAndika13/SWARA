@@ -1,0 +1,4 @@
+# SWARA memakai Chrome/Edge yang SUDAH terpasang di PC (lihat wa-client.js -> findBrowser()).
+# Jadi Puppeteer tidak perlu mengunduh Chromium sendiri (unduhan ini sering gagal/korup).
+puppeteer_skip_download=true
+puppeteer_skip_chromium_download=true

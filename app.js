@@ -25,7 +25,7 @@ const db = require('./database');
 const wa = require('./wa-client');
 const passport = require('./config/passport');
 const authRoutes = require('./routes/auth');
-const { ensurePage, ensureApi } = require('./middleware/auth');
+const { ensurePage, ensureApi, requireRole, attachScope } = require('./middleware/auth'); // ISU 4
 const scheduler = require('./scheduler');
 
 // --- GUARD: pastikan middleware/auth.js versi terbaru sudah terpasang --------
@@ -63,9 +63,9 @@ try {
   if (typeof db.findUserByEmail === 'function' && !db.findUserByEmail('admin@bps.go.id')) {
     db.createUser({
       nama: 'Administrator BPS',
+      role: 'Admin', // ISU 4: akun default = Admin (akses penuh semua data & survei)
       email: 'admin@bps.go.id',
       password: bcrypt.hashSync('bps12345', 10),
-      role: 'PML',
     });
     console.log('[SEED] Akun default dibuat -> email: admin@bps.go.id | password: bps12345');
   }
@@ -106,6 +106,8 @@ app.get('/', ensurePage, (req, res) => {
 // PROTEKSI SEMUA ENDPOINT /api (wajib login) — Graceful: balas 401 JSON
 // -----------------------------------------------------------------------------
 app.use('/api', ensureApi);
+// ISU 3: setiap request /api otomatis punya req.scope { id_kegiatan, pml_id }
+app.use('/api', attachScope(db.getKegiatanAktif));
 
 // =============================================================================
 // MITIGASI ISU 1 — PAKTA INTEGRITAS KERAHASIAAN DATA
@@ -154,22 +156,35 @@ app.use('/api', (req, res, next) => {
 // Info user yang sedang login (untuk header dashboard)
 app.get('/api/me', (req, res) => {
   const u = req.user || {};
-  res.json({ nama: u.nama, email: u.email, role: u.role });
+  // ISU 1+4: kirim role & kegiatan aktif agar dashboard menyesuaikan tampilan
+  res.json({ nama: u.nama, email: u.email, role: u.role || 'PML', scope: req.scope });
+});
+
+// ISU 1: daftar kegiatan/survei untuk pemilih di dashboard
+app.get('/api/kegiatan', (req, res) => res.json(db.listKegiatan()));
+// Admin dapat menambah kegiatan baru
+app.post('/api/kegiatan', requireRole('Admin'), (req, res) => {
+  try {
+    const { kode, nama } = req.body || {};
+    if (!kode || !nama) return res.status(400).json({ error: 'Kode dan nama kegiatan wajib diisi.' });
+    const id = db.createKegiatan({ kode, nama });
+    res.status(201).json({ ok: true, id });
+  } catch (e) { res.status(400).json({ error: e.message }); }
 });
 
 // -----------------------------------------------------------------------------
 // API: DATA (dibaca oleh Alpine.js secara berkala)
 // -----------------------------------------------------------------------------
-app.get('/api/stats', (req, res) => res.json(db.getStats()));
+app.get('/api/stats', (req, res) => res.json(db.getStatsScoped(req.scope))); // ISU 3
 // MITIGASI ISU 1: nomor HP dikirim ke browser dalam bentuk TER-MASKING.
 // Nomor lengkap tidak pernah keluar dari server kecuali lewat aksi eksplisit
 // pada endpoint /api/reveal/:id yang selalu dicatat di audit trail.
-app.get('/api/responden', (req, res) => res.json(db.getAll().map(db.toSafeRow)));
+app.get('/api/responden', (req, res) => res.json(db.getAllScoped(req.scope).map(db.toSafeRow))); // ISU 3
 
 // Buka nomor lengkap SATU baris (aksi sadar & tercatat)
 app.get('/api/reveal/:id', (req, res) => {
   const id = Number(req.params.id);
-  const row = db.getByIds([id])[0];
+  const row = db.getByIdScoped(id, req.scope);   // ISU 3: hanya bila milik scope ini
   if (!row) return res.status(404).json({ error: 'Data tidak ditemukan.' });
   if (row.anonim_at) return res.status(410).json({ error: 'Nomor sudah dimusnahkan sesuai kebijakan retensi.' });
   db.logAudit({ ...jejak(req), aksi: 'BUKA_NOMOR', detail: `#${id} ${row.nama_usaha}`, jumlah: 1 });
@@ -208,7 +223,12 @@ app.post('/api/responden', (req, res) => {
     if (!nama_usaha || !no_hp || !nama_petugas) {
       return res.status(400).json({ error: 'Nama usaha, No HP, dan Nama petugas wajib diisi.' });
     }
-    const id = db.insertResponden({ nama_usaha, no_hp, nama_petugas, no_hp_petugas, sumber_data });
+    // ISU 1+3: data baru otomatis terikat ke kegiatan aktif & PML pembuatnya
+    const id = db.insertResponden({
+      nama_usaha, no_hp, nama_petugas, no_hp_petugas, sumber_data,
+      id_kegiatan: req.scope.id_kegiatan,
+      pml_id: req.user.id,
+    });
     db.logAudit({ ...jejak(req), aksi: 'TAMBAH_DATA', detail: `#${id} ${nama_usaha} (${sumber_data || 'MANUAL_PML'})`, jumlah: 1 });
     res.json({ ok: true, id });
   } catch (err) {
@@ -256,7 +276,11 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
         continue;
       }
       try {
-        db.insertResponden({ nama_usaha, no_hp, nama_petugas, no_hp_petugas, sumber_data });
+        db.insertResponden({
+          nama_usaha, no_hp, nama_petugas, no_hp_petugas, sumber_data,
+          id_kegiatan: req.scope.id_kegiatan,   // ISU 1
+          pml_id: req.user.id,                  // ISU 3
+        });
         ok++;
       } catch (e) {
         skip++;
@@ -285,7 +309,8 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 // -----------------------------------------------------------------------------
 app.post('/api/blast', (req, res) => {
   const siap = wa.isReady();
-  const jumlah = db.getPending().length;
+  const pendingScoped = db.getPendingScoped(req.scope);   // ISU 3: hanya data dalam scope
+  const jumlah = pendingScoped.length;
   console.log(`\n[BLAST] Tombol ditekan. Gateway siap = ${siap} | Responden PENDING = ${jumlah}`);
 
   if (!siap) {
@@ -302,7 +327,7 @@ app.post('/api/blast', (req, res) => {
   db.logAudit({ ...jejak(req), aksi: 'BLAST_SEMUA', detail: 'kirim verifikasi ke seluruh PENDING', jumlah });
 
   // Jalankan di background agar HTTP tidak menunggu (blast bisa lama karena jeda)
-  wa.blastPending()
+  wa.blastPending(pendingScoped)   // ISU 1+3: baris ter-scope + nama_survei
     .then((r) => console.log('[BLAST] Selesai:', r))
     .catch((e) => console.error('[BLAST] Error:', e.message));
 
@@ -337,9 +362,14 @@ app.post('/api/blast-selected', (req, res) => {
   if (ids.length === 0) {
     return res.status(400).json({ error: 'Tidak ada responden yang dipilih.' });
   }
-  console.log(`[BLAST-SELECTED] Memulai pengiriman ke ${ids.length} responden terpilih…`);
-  db.logAudit({ ...jejak(req), aksi: 'BLAST_TERPILIH', detail: `id: ${ids.slice(0, 20).join(',')}`, jumlah: ids.length });
-  wa.blastByIds(ids)
+  // ISU 3: filter id ke scope milik user -> hanya datanya yang boleh dikirim
+  const rowsScoped = db.getByIdsScoped(ids, req.scope);
+  if (rowsScoped.length === 0) {
+    return res.status(403).json({ error: 'Tidak ada data terpilih yang berada dalam wewenang Anda.' });
+  }
+  console.log(`[BLAST-SELECTED] Memulai pengiriman ke ${rowsScoped.length} responden terpilih…`);
+  db.logAudit({ ...jejak(req), aksi: 'BLAST_TERPILIH', detail: `id: ${rowsScoped.map((r)=>r.id).slice(0, 20).join(',')}`, jumlah: rowsScoped.length });
+  wa.blastByIds(ids, rowsScoped)
     .then((r) => console.log('[BLAST-SELECTED] Selesai:', r))
     .catch((e) => console.error('[BLAST-SELECTED] Error:', e.message));
   res.json({ ok: true, message: `Blast dimulai untuk ${ids.length} responden terpilih (jeda 5-8 detik/pesan).` });
@@ -350,6 +380,7 @@ app.post('/api/blast-selected', (req, res) => {
 // -----------------------------------------------------------------------------
 app.post('/api/resolve/:id', (req, res) => {
   const id = Number(req.params.id);
+  if (!db.getByIdScoped(id, req.scope)) return res.status(404).json({ error: 'Data tidak ditemukan.' }); // ISU 3
   const info = db.resolveManual(id);
   console.log(`[RESOLVE] Responden #${id} divalidasi manual menjadi VALID_MANUAL.`);
   db.logAudit({ ...jejak(req), aksi: 'VALIDASI_MANUAL', detail: `#${id} Fraud -> Valid (Manual)`, jumlah: 1 });
@@ -445,7 +476,7 @@ wa.bus.on('blast-selesai', (d) => io.emit('blast-selesai', d));
 
 server.listen(PORT, () => {
   console.log('\n==================================================');
-  console.log('  SISTEM AUDIT SE2026 - BPS KARANGASEM');
+  console.log('  SWARA - Sistem WhatsApp Responsif & Akurat (BPS Karangasem)');
   console.log(`  Dashboard : http://localhost:${PORT}`);
   console.log('==================================================');
   console.log('[APP] Menginisialisasi WhatsApp Gateway…');

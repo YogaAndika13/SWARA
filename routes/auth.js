@@ -69,6 +69,13 @@ router.post('/login', (req, res, next) => {
     if (!user) return res.status(401).json({ error: (info && info.message) || 'Login gagal.' });
     req.logIn(user, (e) => {
       if (e) return res.status(500).json({ error: e.message });
+      // AUDIT TRAIL (MITIGASI ISU 1): catat setiap keberhasilan masuk ke sistem
+      db.logAudit({
+        user_email: user.email,
+        aksi: 'LOGIN',
+        detail: 'login email & password',
+        ip: req.headers['x-forwarded-for'] || req.socket.remoteAddress || '',
+      });
       return res.json({ ok: true, redirect: '/' });
     });
   })(req, res, next);
@@ -82,8 +89,9 @@ router.post('/forgot', (req, res) => {
   // Selalu balas sukses (jangan bocorkan email mana yang terdaftar - keamanan).
   if (user) {
     const token = crypto.randomBytes(24).toString('hex');
-    const expires = new Date(Date.now() + 60 * 60 * 1000).toISOString().slice(0, 19).replace('T', ' ');
-    db.setResetToken(email, token, expires);
+    // ISU 2: simpan sebagai epoch ms (angka), bukan string ISO/UTC -> komparasi bebas timezone
+    const expiresMs = Date.now() + 60 * 60 * 1000; // berlaku 1 jam
+    db.setResetToken(email, token, expiresMs);
     const link = `${req.protocol}://${req.get('host')}/reset/${token}`;
     // SIMULASI: di produksi link ini dikirim via email. Di sini kita tampilkan di log.
     console.log(`\n[RESET PASSWORD] Link reset untuk ${email} (berlaku 1 jam):\n${link}\n`);

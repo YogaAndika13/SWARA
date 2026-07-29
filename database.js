@@ -60,6 +60,24 @@ if (!_punyaKolom('sumber_data')) db.exec(`ALTER TABLE responden ADD COLUMN sumbe
 // MITIGASI ISU 1 (kerahasiaan): penanda bahwa nomor telah dimusnahkan (retensi data)
 if (!_punyaKolom('anonim_at')) db.exec(`ALTER TABLE responden ADD COLUMN anonim_at TEXT`);
 
+// ISU 1 (Survey-Agnostic): master kegiatan/survei. Sistem tidak lagi terikat "SE2026".
+db.exec(`
+  CREATE TABLE IF NOT EXISTS kegiatan (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    kode       TEXT UNIQUE NOT NULL,          -- mis. 'SE2026', 'SUSENAS2026'
+    nama       TEXT NOT NULL,                 -- mis. 'Sensus Ekonomi 2026'
+    aktif      INTEGER NOT NULL DEFAULT 1,    -- 1 = kegiatan berjalan
+    created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  );
+`);
+// Seed satu kegiatan default bila kosong (agar data lama tetap punya induk)
+const _adaKeg = db.prepare(`SELECT COUNT(*) c FROM kegiatan`).get().c;
+if (!_adaKeg) db.prepare(`INSERT INTO kegiatan (kode, nama) VALUES (?, ?)`).run('UMUM', 'Kegiatan Pendataan BPS');
+
+// ISU 1 + ISU 3: setiap responden terikat ke kegiatan & ke PML pemilik data
+if (!_punyaKolom('id_kegiatan')) db.exec(`ALTER TABLE responden ADD COLUMN id_kegiatan INTEGER DEFAULT 1`);
+if (!_punyaKolom('pml_id'))      db.exec(`ALTER TABLE responden ADD COLUMN pml_id INTEGER`);
+
 // Tabel pengguna (untuk modul Autentikasi: PML/Supervisor).
 // password = hash bcrypt; boleh NULL untuk akun yang login via Google saja.
 db.exec(`
@@ -81,6 +99,10 @@ const _kolomUsers = db.prepare(`PRAGMA table_info(users)`).all();
 const _punyaKolomUser = (n) => _kolomUsers.some((k) => k.name === n);
 if (!_punyaKolomUser('pakta_at'))    db.exec(`ALTER TABLE users ADD COLUMN pakta_at TEXT`);
 if (!_punyaKolomUser('pakta_versi')) db.exec(`ALTER TABLE users ADD COLUMN pakta_versi TEXT`);
+// ISU 2: simpan kedaluwarsa token sebagai epoch ms (INTEGER) -> komparasi bebas timezone
+if (!_punyaKolomUser('reset_expires_ms')) db.exec(`ALTER TABLE users ADD COLUMN reset_expires_ms INTEGER`);
+// ISU 4 (RBAC): kaitkan PML ke kegiatan yang ditugaskan
+if (!_punyaKolomUser('id_kegiatan')) db.exec(`ALTER TABLE users ADD COLUMN id_kegiatan INTEGER`);
 
 // MITIGASI ISU 1: AUDIT TRAIL — mencatat setiap akses/aksi terhadap data rahasia.
 // Inilah bukti akuntabilitas: siapa, kapan, melakukan apa, atas berapa baris data.
@@ -114,7 +136,8 @@ function normalizeNumber(raw) {
 // PREPARED STATEMENTS (placeholder posisi: ? )
 // -----------------------------------------------------------------------------
 const stmtInsert = db.prepare(
-  `INSERT INTO responden (nama_usaha, no_hp, wa_id, nama_petugas, no_hp_petugas, sumber_data) VALUES (?, ?, ?, ?, ?, ?)`
+  // ISU 1+3: sertakan id_kegiatan (survei) & pml_id (pemilik data)
+  `INSERT INTO responden (nama_usaha, no_hp, wa_id, nama_petugas, no_hp_petugas, sumber_data, id_kegiatan, pml_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
 );
 
 // Daftar sumber data yang sah (MITIGASI ISU 2)
@@ -151,7 +174,7 @@ const stmtResolve    = db.prepare(`
 
 /** Tambah satu responden. Melempar error bila nomor tidak valid.
  *  no_hp_petugas OPSIONAL — dipakai fitur Auto-Teguran (kirim WA ke PPL). */
-function insertResponden({ nama_usaha, no_hp, nama_petugas, no_hp_petugas, sumber_data }) {
+function insertResponden({ nama_usaha, no_hp, nama_petugas, no_hp_petugas, sumber_data, id_kegiatan, pml_id }) {
   const wa_id = normalizeNumber(no_hp);
   if (!wa_id) throw new Error(`Nomor HP tidak valid: "${no_hp}"`);
   const info = stmtInsert.run(
@@ -160,9 +183,11 @@ function insertResponden({ nama_usaha, no_hp, nama_petugas, no_hp_petugas, sumbe
     wa_id,
     String(nama_petugas).trim(),
     no_hp_petugas ? String(no_hp_petugas).trim() : null,
-    SUMBER_VALID.includes(sumber_data) ? sumber_data : 'MANUAL_PML'
+    SUMBER_VALID.includes(sumber_data) ? sumber_data : 'MANUAL_PML',
+    Number(id_kegiatan) || 1,               // ISU 1: default kegiatan pertama
+    pml_id ? Number(pml_id) : null          // ISU 3: pemilik data (null = milik admin/umum)
   );
-  return Number(info.lastInsertRowid); // pastikan number (bukan BigInt)
+  return Number(info.lastInsertRowid);
 }
 
 const getPending        = () => stmtPending.all();
@@ -171,6 +196,72 @@ const markFailed        = (id) => stmtMarkFailed.run(id);
 const findAwaitingByWa  = (wa_id) => stmtFindAwaiting.get(wa_id);
 const markReply         = (id, status, balasan) => stmtMarkReply.run(status, balasan, id);
 const getAll            = () => stmtAll.all();
+
+// =============================================================================
+// ISU 3 — DATA ISOLATION: query yang selalu difilter kegiatan, dan opsional PML.
+// scope = { id_kegiatan, pml_id }. Jika pml_id null -> lihat semua (Admin).
+// =============================================================================
+// Bangun klausa WHERE + objek parameter yang HANYA memuat kunci yang dipakai.
+// (node:sqlite menolak named-param yang tidak muncul di SQL.)
+function _scopeSQL(scope, extra = {}, alias = '') {
+  const a = alias ? alias + '.' : '';           // dukung alias tabel (mis. 'r.') untuk query ber-JOIN
+  const p = { id_kegiatan: Number(scope.id_kegiatan) || 1, ...extra };
+  let where = `${a}id_kegiatan = @id_kegiatan`;
+  if (scope && scope.pml_id != null) {          // PML: kunci ke pemilik data; Admin: dilewati
+    where += ` AND ${a}pml_id = @pml_id`;
+    p.pml_id = Number(scope.pml_id);
+  }
+  return { where, p };
+}
+function getAllScoped(scope) {
+  const { where, p } = _scopeSQL(scope);
+  return db.prepare(`SELECT * FROM responden WHERE ${where} ORDER BY id DESC`).all(p);
+}
+function getStatsScoped(scope) {
+  const { where, p } = _scopeSQL(scope);
+  return db.prepare(`
+    SELECT
+      COUNT(*)                                                            AS total,
+      IFNULL(SUM(status IN ('TERKIRIM','VALID','FRAUD','VALID_MANUAL')),0) AS terkirim,
+      IFNULL(SUM(status IN ('VALID','VALID_MANUAL')),0)                   AS valid,
+      IFNULL(SUM(status = 'FRAUD'),0)                                     AS fraud,
+      IFNULL(SUM(status = 'PENDING'),0)                                   AS pending,
+      IFNULL(SUM(status = 'GAGAL'),0)                                     AS gagal
+    FROM responden WHERE ${where}`).get(p);
+}
+// Ambil satu baris dengan penjaga kepemilikan (ISU 3) -> null bila bukan miliknya
+function getByIdScoped(id, scope) {
+  const { where, p } = _scopeSQL(scope, { id: Number(id) });
+  return db.prepare(`SELECT * FROM responden WHERE id = @id AND ${where}`).get(p) || null;
+}
+function getPendingScoped(scope) {
+  const { where, p } = _scopeSQL(scope, {}, 'r'); // alias 'r.' agar cocok dengan JOIN
+  // ISU 1: sertakan nama_survei (untuk template pesan WA dinamis)
+  return db.prepare(`
+    SELECT r.*, k.nama AS nama_survei
+    FROM responden r LEFT JOIN kegiatan k ON k.id = r.id_kegiatan
+    WHERE r.status='PENDING' AND ${where} ORDER BY r.id ASC`).all(p);
+}
+// Ambil baris terpilih DALAM scope + nama_survei (untuk Blast Terpilih ter-isolasi)
+function getByIdsScoped(ids, scope) {
+  if (!ids || !ids.length) return [];
+  const list = ids.map((n) => Number(n)).filter(Number.isFinite);
+  if (!list.length) return [];
+  const ph = list.map(() => '?').join(',');
+  const params = [...list, Number(scope.id_kegiatan) || 1]; // posisional: id..., id_kegiatan
+  let sql = `SELECT r.*, k.nama AS nama_survei FROM responden r LEFT JOIN kegiatan k ON k.id = r.id_kegiatan WHERE r.id IN (${ph}) AND r.id_kegiatan = ?`;
+  if (scope && scope.pml_id != null) { sql += ' AND r.pml_id = ?'; params.push(Number(scope.pml_id)); } // ISU 3
+  return db.prepare(sql).all(...params);
+}
+
+// ISU 1 — master kegiatan
+const listKegiatan   = () => db.prepare(`SELECT * FROM kegiatan ORDER BY aktif DESC, id DESC`).all();
+const getKegiatan    = (id) => db.prepare(`SELECT * FROM kegiatan WHERE id = ?`).get(Number(id));
+const getKegiatanAktif = () => db.prepare(`SELECT * FROM kegiatan WHERE aktif = 1 ORDER BY id DESC LIMIT 1`).get();
+function createKegiatan({ kode, nama }) {
+  const info = db.prepare(`INSERT INTO kegiatan (kode, nama) VALUES (?, ?)`).run(String(kode).trim().toUpperCase(), String(nama).trim());
+  return Number(info.lastInsertRowid);
+}
 const resetAll          = () => stmtResetAll.run();
 const resetOne          = (id) => stmtResetOne.run(id);
 const resolveManual     = (id) => stmtResolve.run(id);
@@ -221,9 +312,9 @@ const stmtUserById     = db.prepare(`SELECT * FROM users WHERE id = ?`);
 const stmtUserByGoogle = db.prepare(`SELECT * FROM users WHERE google_id = ?`);
 const stmtCreateUser   = db.prepare(`INSERT INTO users (nama, email, password, google_id, role) VALUES (?, ?, ?, ?, ?)`);
 const stmtLinkGoogle   = db.prepare(`UPDATE users SET google_id = ? WHERE id = ?`);
-const stmtSetReset     = db.prepare(`UPDATE users SET reset_token = ?, reset_expires = ? WHERE email = ?`);
-const stmtUserByReset  = db.prepare(`SELECT * FROM users WHERE reset_token = ? AND reset_expires > datetime('now','localtime')`);
-const stmtUpdatePass   = db.prepare(`UPDATE users SET password = ?, reset_token = NULL, reset_expires = NULL WHERE id = ?`);
+const stmtSetReset     = db.prepare(`UPDATE users SET reset_token = ?, reset_expires_ms = ? WHERE email = ?`);
+const stmtUserByReset  = db.prepare(`SELECT * FROM users WHERE reset_token = ? AND reset_expires_ms > ?`);  // ISU 2: banding epoch vs Date.now()
+const stmtUpdatePass   = db.prepare(`UPDATE users SET password = ?, reset_token = NULL, reset_expires_ms = NULL WHERE id = ?`);
 
 const _email = (e) => String(e || '').toLowerCase().trim();
 function createUser({ nama, email, password = null, google_id = null, role = 'PML' }) {
@@ -234,8 +325,8 @@ const findUserByEmail     = (email) => stmtUserByEmail.get(_email(email));
 const findUserById        = (id) => stmtUserById.get(id);
 const findUserByGoogleId  = (gid) => stmtUserByGoogle.get(gid);
 const linkGoogle          = (id, gid) => stmtLinkGoogle.run(gid, id);
-const setResetToken       = (email, token, expires) => stmtSetReset.run(token, expires, _email(email));
-const findUserByResetToken = (token) => stmtUserByReset.get(token);
+const setResetToken       = (email, token, expiresMs) => stmtSetReset.run(token, expiresMs, _email(email)); // expiresMs = Date.now()+3600000
+const findUserByResetToken = (token) => stmtUserByReset.get(token, Date.now());  // ISU 2
 const updatePassword      = (id, hash) => stmtUpdatePass.run(hash, id);
 
 // =============================================================================
@@ -317,6 +408,9 @@ const getSampleIds = (n = 10) => stmtSample.all(Number(n) || 10).map((r) => r.id
 
 module.exports = {
   db,
+  getAllScoped, getStatsScoped, getByIdScoped, getPendingScoped,   // ISU 3
+  listKegiatan, getKegiatan, getKegiatanAktif, createKegiatan,      // ISU 1
+  getByIdsScoped,
   SUMBER_VALID,
   normalizeNumber,
   maskNumber,

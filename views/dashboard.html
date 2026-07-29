@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard Audit SE2026 — BPS Karangasem</title>
+  <title>SWARA — Sistem WhatsApp Responsif & Akurat · BPS Karangasem</title>
 
   <!-- Font Inter -->
   <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -121,23 +121,84 @@
       <div class="flex items-center gap-3">
         <div class="h-11 w-11 rounded-xl bg-white/15 ring-1 ring-white/25 flex items-center justify-center font-extrabold tracking-tight">BPS</div>
         <div class="leading-tight">
-          <h1 class="text-base sm:text-lg font-bold">Dashboard Audit SE2026</h1>
-          <p class="text-blue-200 text-xs sm:text-sm">BPS Kabupaten Karangasem · Instant Feedback Loop</p>
+          <h1 class="text-base sm:text-lg font-bold">SWARA</h1>
+          <p class="text-blue-200 text-xs sm:text-sm">
+            BPS Kabupaten Karangasem
+            <span x-show="kegiatanAktif" class="text-blue-100">· <span x-text="kegiatanAktif?.nama"></span></span>
+          </p>
         </div>
       </div>
       <div class="flex items-center gap-3">
+        <!-- ISU 1: pemilih survei/kegiatan aktif -->
+        <select x-show="kegiatanList.length > 0" x-model="kegiatanDipilih" @change="gantiKegiatan()"
+                :disabled="me.role !== 'Admin'"
+                :title="me.role === 'Admin' ? 'Pilih survei/kegiatan' : 'Kegiatan Anda ditetapkan oleh Admin'"
+                class="hidden sm:block rounded-lg bg-white/15 ring-1 ring-white/25 text-white text-xs sm:text-sm px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-70 [&>option]:text-slate-800">
+          <template x-for="k in kegiatanList" :key="k.id">
+            <option :value="k.id" x-text="k.nama + (k.aktif ? '' : ' (nonaktif)')"></option>
+          </template>
+        </select>
+
         <div class="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs sm:text-sm font-medium"
              :class="waReady ? 'bg-emerald-500/20 text-emerald-100 ring-1 ring-emerald-300/40' : 'bg-amber-500/20 text-amber-100 ring-1 ring-amber-300/40'">
           <span class="h-2.5 w-2.5 rounded-full" :class="waReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'"></span>
           <span x-text="waReady ? 'WA Gateway Aktif' : 'Menunggu Koneksi WA…'"></span>
         </div>
-        <span class="hidden md:inline text-sm text-blue-100" x-text="me.nama || me.email || 'PML'"></span>
+        <!-- Badge peran + nama pengguna -->
+        <span class="hidden md:inline-flex items-center gap-1.5 text-sm text-blue-100">
+          <span class="rounded-md bg-white/15 ring-1 ring-white/25 px-2 py-0.5 text-xs font-semibold"
+                x-text="me.role || 'PML'"></span>
+          <span x-text="me.nama || me.email || ''"></span>
+        </span>
         <button @click="logout()" class="rounded-lg bg-white/15 hover:bg-white/25 ring-1 ring-white/25 px-3 py-1.5 text-xs sm:text-sm font-semibold transition">Keluar</button>
       </div>
     </div>
   </header>
 
   <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+
+    <!-- ============ ISU 1 + ISU 4: MODAL KELOLA SURVEI (khusus Admin) ============ -->
+    <div x-show="showKegiatan" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
+         @keydown.escape.window="showKegiatan = false">
+      <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" @click.stop>
+        <div class="flex items-start gap-3 mb-4">
+          <div class="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+            <svg class="h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Kelola Survei / Kegiatan</h2>
+            <p class="text-sm text-slate-500">Tambah kegiatan pendataan baru. Sistem melayani banyak survei.</p>
+          </div>
+        </div>
+
+        <!-- Daftar kegiatan yang ada -->
+        <div class="rounded-lg border border-slate-200 divide-y divide-slate-100 max-h-40 overflow-y-auto mb-4">
+          <template x-for="k in kegiatanList" :key="k.id">
+            <div class="flex items-center justify-between px-3 py-2 text-sm">
+              <span class="font-medium text-slate-700"><span x-text="k.kode"></span> — <span x-text="k.nama"></span></span>
+              <span class="text-xs rounded-full px-2 py-0.5" :class="k.aktif ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                    x-text="k.aktif ? 'aktif' : 'nonaktif'"></span>
+            </div>
+          </template>
+        </div>
+
+        <!-- Form tambah -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <input x-model="formKegiatan.kode" placeholder="Kode (mis. SUSENAS2026)"
+                 class="sm:col-span-1 rounded-lg border border-slate-300 px-3 py-2.5 text-sm uppercase focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          <input x-model="formKegiatan.nama" placeholder="Nama kegiatan (mis. Susenas 2026)"
+                 class="sm:col-span-2 rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+        </div>
+        <p x-show="kegiatanGalat" class="mt-2 text-sm font-medium text-red-600" x-text="kegiatanGalat"></p>
+
+        <div class="flex items-center justify-end gap-2 mt-5">
+          <button @click="showKegiatan = false"
+                  class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Tutup</button>
+          <button @click="tambahKegiatan()"
+                  class="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 transition">Tambah Survei</button>
+        </div>
+      </div>
+    </div>
 
     <!-- ============ MITIGASI ISU 1: PAKTA INTEGRITAS KERAHASIAAN DATA ============ -->
     <!-- Modal pemblokir: data tidak dapat diakses sebelum pernyataan disetujui. -->
@@ -154,7 +215,7 @@
         </div>
 
         <div class="bg-slate-50 rounded-lg p-4 text-sm text-slate-700 leading-relaxed max-h-64 overflow-y-auto space-y-2">
-          <p>Dengan ini saya menyatakan bahwa dalam mengakses dan mengolah data pada Sistem Penjaminan Kualitas SE2026:</p>
+          <p>Dengan ini saya menyatakan bahwa dalam mengakses dan mengolah data pada Sistem SWARA (BPS Kabupaten Karangasem):</p>
           <ol class="list-decimal ml-5 space-y-1.5">
             <li>Saya terikat kewajiban menjaga <span class="font-semibold">kerahasiaan data responden</span> sesuai <span class="font-semibold">UU No. 16 Tahun 1997 tentang Statistik</span> dan <span class="font-semibold">UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi</span>.</li>
             <li>Data hanya digunakan untuk keperluan <span class="font-semibold">penjaminan kualitas dan pengawasan pencacahan</span>, tidak untuk kepentingan lain.</li>
@@ -224,11 +285,18 @@
             Sampel Acak
           </button>
 
-          <!-- MITIGASI ISU 1: pemusnahan nomor sesuai kebijakan retensi -->
-          <button @click="musnahkanNomor()"
+          <!-- MITIGASI ISU 1: pemusnahan nomor (khusus Admin — tindakan permanen) -->
+          <button x-show="me.role === 'Admin'" @click="musnahkanNomor()"
                   class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
             Retensi
+          </button>
+
+          <!-- ISU 1 + ISU 4: kelola survei/kegiatan (khusus Admin) -->
+          <button x-show="me.role === 'Admin'" @click="showKegiatan = true"
+                  class="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
+            Tambah Survei
           </button>
 
           <!-- FITUR 2 + MITIGASI ISU 1: Ekspor (default nomor TERSAMAR + watermark) -->
@@ -525,7 +593,7 @@
     </section>
 
     <footer class="text-center text-xs text-slate-400 pt-2 pb-6">
-      Sistem Instant Feedback Loop · Aktualisasi CPNS · BPS Kabupaten Karangasem © 2026
+      SWARA · Sistem WhatsApp Responsif & Akurat · Aktualisasi CPNS · BPS Kabupaten Karangasem © 2026
     </footer>
   </main>
 
@@ -537,6 +605,12 @@
         rows: [],
         me: {},                 // info user login (navbar)
         tab: 'semua',           // tab aktif: semua | hijau | fraud
+        // --- ISU 1 + ISU 4: survei/kegiatan & kontrol admin ---
+        kegiatanList: [],       // daftar semua kegiatan
+        kegiatanDipilih: '',    // id kegiatan yang sedang dilihat (Admin bisa ganti)
+        showKegiatan: false,    // modal kelola survei
+        formKegiatan: { kode: '', nama: '' },
+        kegiatanGalat: '',
         // --- MITIGASI ISU 1: pakta, masking, audit ---
         paktaOK: true,          // true dulu agar modal tak berkedip saat memuat
         paktaCentang: false,
@@ -561,6 +635,11 @@
         _toastId: 0,
         dlg: null,         // dialog aktif (konfirmasi / input); null = tertutup
         chart: null,
+
+        // Kegiatan yang sedang dilihat (untuk judul navbar) — ISU 1
+        get kegiatanAktif() {
+          return this.kegiatanList.find((k) => String(k.id) === String(this.kegiatanDipilih)) || null;
+        },
 
         // Daftar petugas unik (untuk dropdown filter) — FITUR 5
         get petugasList() {
@@ -603,9 +682,11 @@
 
         init() {
           this.initChart();
-          fetch('/api/me').then((r) => r.json()).then((m) => (this.me = m)).catch(() => {});
-          this.cekPakta();
-          this.refresh();
+          // Muat profil + daftar kegiatan lebih dulu, baru refresh data (ISU 1)
+          this.muatProfilDanKegiatan().finally(() => {
+            this.cekPakta();
+            this.refresh();
+          });
           setInterval(() => this.refresh(), 5000);
 
           // FITUR 6: Socket.io untuk QR & status real-time
@@ -638,12 +719,12 @@
 
         async refresh() {
           try {
-            const rs = await fetch('/api/stats');
+            const rs = await fetch(this.qk('/api/stats'));   // ISU 1: ikut kegiatan terpilih
             if (rs.status === 401) { window.location = '/login'; return; } // sesi habis
             if (rs.status === 403) { this.paktaOK = false; return; }       // belum setuju pakta
             this.paktaOK = true;
             this.stats = await rs.json();
-            this.rows = await fetch('/api/responden').then((r) => r.json());
+            this.rows = await fetch(this.qk('/api/responden')).then((r) => r.json());
             this.waReady = (await fetch('/api/wa-status').then((r) => r.json())).ready;
             this.rekapSumber = await fetch('/api/rekap-sumber').then((r) => r.json());
             this.auditLog = await fetch('/api/audit-log?limit=100').then((r) => r.json());
@@ -695,7 +776,7 @@
           const fd = new FormData();
           fd.append('file', file);
           try {
-            const res = await fetch('/api/upload', { method: 'POST', body: fd }).then((r) => r.json());
+            const res = await fetch(this.qk('/api/upload'), { method: 'POST', body: fd }).then((r) => r.json()); // ISU 1
             if (res.error) return this.toast(res.error, 'error');
             this.toast(`Impor selesai: ${res.ok} data masuk, ${res.skip} dilewati.`);
             this.refresh();
@@ -705,7 +786,7 @@
 
         async addManual() {
           if (!this.form.nama_usaha || !this.form.no_hp || !this.form.nama_petugas) return this.toast('Semua kolom wajib diisi.', 'error');
-          const res = await fetch('/api/responden', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.form) }).then((r) => r.json());
+          const res = await fetch('/api/responden', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.bodyK(this.form)) }).then((r) => r.json()); // ISU 1
           if (res.error) return this.toast(res.error, 'error');
           this.toast('Responden ditambahkan.');
           this.form = { nama_usaha: '', no_hp: '', nama_petugas: '', no_hp_petugas: '', sumber_data: this.form.sumber_data };
@@ -716,7 +797,7 @@
         async blast() {
           this.blasting = true;
           try {
-            const res = await fetch('/api/blast', { method: 'POST' }).then((r) => r.json());
+            const res = await fetch('/api/blast', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.bodyK()) }).then((r) => r.json()); // ISU 1
             this.toast(res.error || res.message, res.error ? 'error' : 'success');
           } catch (e) { this.toast('Gagal memulai blast: ' + e.message, 'error'); }
           finally { setTimeout(() => (this.blasting = false), 1500); }
@@ -727,7 +808,7 @@
           if (this.selected.length === 0) return this.toast('Pilih minimal satu responden dulu.', 'error');
           const ids = this.selected.map(Number);
           try {
-            const res = await fetch('/api/blast-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).then((r) => r.json());
+            const res = await fetch('/api/blast-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.bodyK({ ids })) }).then((r) => r.json()); // ISU 1+3
             this.toast(res.error || res.message, res.error ? 'error' : 'success');
             this.selected = [];
             this.refresh();
@@ -746,7 +827,7 @@
           });
           if (!ok) return;
           try {
-            await fetch('/api/resolve/' + id, { method: 'POST' }).then((r) => r.json());
+            await fetch(this.qk('/api/resolve/' + id), { method: 'POST' }).then((r) => r.json()); // ISU 3
             this.toast('Status diubah menjadi Valid (Manual).');
             this.refresh();
           } catch (e) { this.toast('Gagal: ' + e.message, 'error'); }
@@ -769,6 +850,60 @@
         },
 
         // ===================== MITIGASI ISU 1: KERAHASIAAN =====================
+        // ===================== ISU 1 + ISU 4: SURVEI/KEGIATAN =====================
+        // Sisipkan id_kegiatan terpilih ke URL (GET) — agar Admin bisa berpindah survei.
+        qk(url) {
+          const id = this.kegiatanDipilih;
+          if (!id) return url;
+          return url + (url.includes('?') ? '&' : '?') + 'id_kegiatan=' + encodeURIComponent(id);
+        },
+        // Sisipkan id_kegiatan ke objek body (POST).
+        bodyK(obj = {}) {
+          return this.kegiatanDipilih ? { ...obj, id_kegiatan: Number(this.kegiatanDipilih) } : obj;
+        },
+
+        async muatProfilDanKegiatan() {
+          try {
+            this.me = await fetch('/api/me').then((r) => r.json());
+            // scope.id_kegiatan menentukan kegiatan yang sedang aktif untuk user ini
+            if (this.me.scope && this.me.scope.id_kegiatan) {
+              this.kegiatanDipilih = String(this.me.scope.id_kegiatan);
+            }
+            this.kegiatanList = await fetch('/api/kegiatan').then((r) => r.json());
+            if (!this.kegiatanDipilih && this.kegiatanList[0]) {
+              this.kegiatanDipilih = String(this.kegiatanList[0].id);
+            }
+          } catch (e) { /* biarkan; dashboard tetap jalan dengan kegiatan default */ }
+        },
+
+        // Admin berpindah survei -> semua query mengikuti id_kegiatan terpilih
+        gantiKegiatan() {
+          if (this.me.role !== 'Admin') return;   // PML terkunci ke kegiatannya
+          this.selected = [];
+          this.dibuka = {};
+          const nama = this.kegiatanAktif ? this.kegiatanAktif.nama : 'kegiatan';
+          this.toast('Beralih ke ' + nama, 'info');
+          this.refresh();
+        },
+
+        async tambahKegiatan() {
+          this.kegiatanGalat = '';
+          const kode = (this.formKegiatan.kode || '').trim().toUpperCase();
+          const nama = (this.formKegiatan.nama || '').trim();
+          if (!kode || !nama) { this.kegiatanGalat = 'Kode dan nama kegiatan wajib diisi.'; return; }
+          try {
+            const res = await fetch('/api/kegiatan', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ kode, nama }),
+            });
+            const j = await res.json();
+            if (!res.ok) { this.kegiatanGalat = j.error || 'Gagal menambah kegiatan.'; return; }
+            this.formKegiatan = { kode: '', nama: '' };
+            this.kegiatanList = await fetch('/api/kegiatan').then((r) => r.json());
+            this.toast('Survei "' + nama + '" ditambahkan', 'sukses');
+          } catch (e) { this.kegiatanGalat = 'Gagal: ' + e.message; }
+        },
+
         async cekPakta() {
           try {
             const p = await fetch('/api/pakta').then((r) => r.json());
@@ -807,7 +942,7 @@
           });
           if (!ok) return;
           try {
-            const res = await fetch('/api/reveal/' + id);
+            const res = await fetch(this.qk('/api/reveal/' + id)); // ISU 3
             const j = await res.json();
             if (!res.ok) return this.toast(j.error || 'Gagal membuka nomor.', 'error');
             this.dibuka = { ...this.dibuka, [id]: j.no_hp };
@@ -907,7 +1042,7 @@
           try {
             const j = await fetch('/api/sample', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ jumlah }),
+              body: JSON.stringify(this.bodyK({ jumlah })),
             }).then((r) => r.json());
             if (j.error) return this.toast(j.error, 'error');
             this.selected = j.ids.map(String);

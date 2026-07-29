@@ -5,3 +5,6 @@ data/*.sqlite
 data/*.sqlite-*
 uploads/*
 !uploads/.gitkeep
+
+# Kredensial rahasia
+.env
