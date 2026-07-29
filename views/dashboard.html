@@ -1,0 +1,1084 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Audit SE2026 — BPS Karangasem</title>
+
+  <!-- Font Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+
+  <!-- Tailwind CSS (CDN) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: { extend: { fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] } } },
+    };
+  </script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  <!-- QRCode.js (untuk render QR di web) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+  <!-- Socket.io client (disajikan otomatis oleh server) -->
+  <script src="/socket.io/socket.io.js"></script>
+  <!-- Alpine.js (defer wajib) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.13.5/dist/cdn.min.js"></script>
+
+  <style>
+    body { font-family: 'Inter', sans-serif; }
+    .thin-scroll::-webkit-scrollbar { height: 8px; }
+    .thin-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
+    [x-cloak] { display: none !important; }
+  </style>
+</head>
+
+<body class="bg-gray-50 text-slate-800 antialiased" x-data="auditApp()" x-init="init()" x-cloak>
+
+  <!-- ================== SISTEM NOTIFIKASI (pengganti alert/confirm/prompt) ================== -->
+
+  <!-- 1) TOAST: pesan ringan, menumpuk di kanan atas, hilang otomatis -->
+  <div class="fixed top-4 right-4 z-[60] w-full max-w-sm space-y-2 pointer-events-none">
+    <template x-for="t in toasts" :key="t.id">
+      <div x-transition:enter="transition ease-out duration-200"
+           x-transition:enter-start="opacity-0 translate-x-6"
+           x-transition:enter-end="opacity-100 translate-x-0"
+           x-transition:leave="transition ease-in duration-150"
+           x-transition:leave-start="opacity-100" x-transition:leave-end="opacity-0"
+           class="pointer-events-auto bg-white rounded-xl shadow-lg ring-1 flex items-start gap-3 p-4"
+           :class="gayaToast(t.varian).ring">
+        <div class="shrink-0 mt-0.5" :class="gayaToast(t.varian).ikon" x-html="ikonToast(t.varian)"></div>
+        <div class="flex-1 min-w-0">
+          <p class="text-sm font-semibold text-slate-900" x-text="t.judul"></p>
+          <p x-show="t.pesan" class="text-sm text-slate-500 mt-0.5" x-text="t.pesan"></p>
+        </div>
+        <button @click="tutupToast(t.id)" class="shrink-0 text-slate-400 hover:text-slate-600 transition" aria-label="Tutup">
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+        </button>
+      </div>
+    </template>
+  </div>
+
+  <!-- 2) DIALOG: satu markup untuk varian KONFIRMASI dan INPUT -->
+  <div x-show="dlg" x-cloak class="fixed inset-0 z-[70] flex items-center justify-center bg-slate-900/60 px-4"
+       @keydown.escape.window="dlgBatal()">
+    <div x-show="dlg" x-transition:enter="transition ease-out duration-200"
+         x-transition:enter-start="opacity-0 scale-95" x-transition:enter-end="opacity-100 scale-100"
+         class="bg-white rounded-xl shadow-xl max-w-md w-full p-6" @click.stop>
+      <template x-if="dlg">
+        <div>
+          <div class="flex items-start gap-3">
+            <div class="h-11 w-11 rounded-xl flex items-center justify-center shrink-0"
+                 :class="gayaDlg().kotak" x-html="ikonDlg()"></div>
+            <div class="min-w-0">
+              <h3 class="text-base font-bold text-slate-900" x-text="dlg.judul"></h3>
+              <p x-show="dlg.pesan" class="text-sm text-slate-500 mt-1 leading-relaxed" x-text="dlg.pesan"></p>
+            </div>
+          </div>
+
+          <!-- Kotak rincian dampak (opsional) -->
+          <div x-show="dlg.detail" class="mt-4 rounded-lg px-3 py-2.5 text-sm leading-relaxed"
+               :class="gayaDlg().detail" x-text="dlg.detail"></div>
+
+          <!-- Varian INPUT -->
+          <div x-show="dlg.tipe === 'input'" class="mt-4">
+            <label x-show="dlg.label" class="block text-sm font-medium text-slate-700 mb-1.5" x-text="dlg.label"></label>
+            <input x-ref="dlgInput" :type="dlg.tipeInput || 'text'" x-model="dlg.nilai"
+                   @keydown.enter="dlgOk()"
+                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <p x-show="dlg.hint" class="text-xs text-slate-400 mt-1.5" x-text="dlg.hint"></p>
+          </div>
+
+          <!-- Konfirmasi berbahaya: wajib mengetik kata kunci -->
+          <div x-show="dlg.ketikKunci" class="mt-4">
+            <p class="text-sm text-slate-600 mb-1.5">
+              Ketik <span class="font-mono font-bold text-slate-900" x-text="dlg.ketikKunci"></span> untuk melanjutkan
+            </p>
+            <input type="text" x-model="dlg.kunciDiketik" :placeholder="dlg.ketikKunci"
+                   class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm font-mono focus:ring-2 focus:ring-red-500 focus:border-red-500 outline-none" />
+          </div>
+
+          <p x-show="dlg.galat" class="mt-3 text-sm font-medium text-red-600" x-text="dlg.galat"></p>
+
+          <div class="flex items-center justify-end gap-2 mt-6">
+            <button @click="dlgBatal()"
+                    class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+                    x-text="dlg.teksBatal || 'Batal'"></button>
+            <button @click="dlgOk()" class="rounded-lg px-5 py-2.5 text-sm font-bold text-white transition"
+                    :class="gayaDlg().tombol" x-text="dlg.teksOk || 'Lanjutkan'"></button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+
+  <!-- ============================ NAVBAR ============================ -->
+  <header class="bg-blue-700 text-white shadow-lg sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="h-11 w-11 rounded-xl bg-white/15 ring-1 ring-white/25 flex items-center justify-center font-extrabold tracking-tight">BPS</div>
+        <div class="leading-tight">
+          <h1 class="text-base sm:text-lg font-bold">Dashboard Audit SE2026</h1>
+          <p class="text-blue-200 text-xs sm:text-sm">BPS Kabupaten Karangasem · Instant Feedback Loop</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs sm:text-sm font-medium"
+             :class="waReady ? 'bg-emerald-500/20 text-emerald-100 ring-1 ring-emerald-300/40' : 'bg-amber-500/20 text-amber-100 ring-1 ring-amber-300/40'">
+          <span class="h-2.5 w-2.5 rounded-full" :class="waReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'"></span>
+          <span x-text="waReady ? 'WA Gateway Aktif' : 'Menunggu Koneksi WA…'"></span>
+        </div>
+        <span class="hidden md:inline text-sm text-blue-100" x-text="me.nama || me.email || 'PML'"></span>
+        <button @click="logout()" class="rounded-lg bg-white/15 hover:bg-white/25 ring-1 ring-white/25 px-3 py-1.5 text-xs sm:text-sm font-semibold transition">Keluar</button>
+      </div>
+    </div>
+  </header>
+
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
+
+    <!-- ============ MITIGASI ISU 1: PAKTA INTEGRITAS KERAHASIAAN DATA ============ -->
+    <!-- Modal pemblokir: data tidak dapat diakses sebelum pernyataan disetujui. -->
+    <div x-show="!paktaOK" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 px-4">
+      <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 sm:p-8">
+        <div class="flex items-start gap-3 mb-4">
+          <div class="h-11 w-11 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+            <svg class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Pakta Integritas Kerahasiaan Data</h2>
+            <p class="text-sm text-slate-500">Wajib disetujui sebelum mengakses data responden.</p>
+          </div>
+        </div>
+
+        <div class="bg-slate-50 rounded-lg p-4 text-sm text-slate-700 leading-relaxed max-h-64 overflow-y-auto space-y-2">
+          <p>Dengan ini saya menyatakan bahwa dalam mengakses dan mengolah data pada Sistem Penjaminan Kualitas SE2026:</p>
+          <ol class="list-decimal ml-5 space-y-1.5">
+            <li>Saya terikat kewajiban menjaga <span class="font-semibold">kerahasiaan data responden</span> sesuai <span class="font-semibold">UU No. 16 Tahun 1997 tentang Statistik</span> dan <span class="font-semibold">UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi</span>.</li>
+            <li>Data hanya digunakan untuk keperluan <span class="font-semibold">penjaminan kualitas dan pengawasan pencacahan</span>, tidak untuk kepentingan lain.</li>
+            <li>Saya <span class="font-semibold">tidak akan menyebarluaskan</span> data individual (nama usaha, nomor telepon) kepada pihak yang tidak berwenang.</li>
+            <li>Saya memahami bahwa <span class="font-semibold">seluruh aktivitas saya dicatat</span> dalam jejak audit sistem dan dapat diperiksa sewaktu-waktu.</li>
+            <li>Berkas hasil ekspor bersifat rahasia, memuat penanda identitas pengunduh, dan menjadi tanggung jawab saya.</li>
+            <li>Pelanggaran atas pernyataan ini dapat dikenakan sanksi sesuai ketentuan kepegawaian dan peraturan perundang-undangan.</li>
+          </ol>
+        </div>
+
+        <label class="flex items-start gap-3 mt-4 cursor-pointer">
+          <input type="checkbox" x-model="paktaCentang" class="mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-500" />
+          <span class="text-sm text-slate-700">Saya telah membaca, memahami, dan menyetujui pernyataan kerahasiaan data di atas.</span>
+        </label>
+
+        <div class="flex items-center justify-between mt-5 gap-3">
+          <span class="text-xs text-slate-400">Versi dokumen: <span x-text="paktaVersi"></span></span>
+          <div class="flex gap-2">
+            <button @click="logout()" class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Keluar</button>
+            <button @click="setujuiPakta()" :disabled="!paktaCentang"
+                    class="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
+              Setuju &amp; Lanjutkan
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+
+    <!-- ============ FITUR 6: KARTU QR CODE (muncul saat WA belum aktif) ============ -->
+    <section x-show="!waReady" x-transition class="bg-white rounded-xl shadow-md p-6 border-l-4 border-orange-500">
+      <div class="flex flex-col md:flex-row md:items-center gap-6">
+        <div class="flex-1">
+          <h2 class="text-lg font-bold text-slate-900">Hubungkan WhatsApp Gateway</h2>
+          <p class="text-sm text-slate-500 mt-1 leading-relaxed">
+            Scan QR di samping menggunakan HP: buka <span class="font-semibold">WhatsApp → Setelan → Perangkat Tertaut → Tautkan Perangkat</span>.
+            Setelah tersambung, kartu ini otomatis hilang dan status berubah menjadi hijau.
+          </p>
+          <p x-show="!hasQR" class="text-xs text-amber-600 mt-3">Menyiapkan QR… mohon tunggu beberapa detik.</p>
+        </div>
+        <div class="flex items-center justify-center">
+          <div x-ref="qrbox" class="p-3 bg-white rounded-lg ring-1 ring-slate-200"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================ ACTION BAR ============================ -->
+    <section class="bg-white rounded-xl shadow-md p-5 sm:p-6">
+      <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Panel Kendali Verifikasi</h2>
+          <p class="text-sm text-slate-500 mt-1">Impor data responden, lalu kirim pesan verifikasi kunjungan petugas.</p>
+        </div>
+
+        <div class="flex flex-wrap items-center gap-3">
+          <!-- FITUR 2: Unduh Template -->
+          <a href="/api/download-template"
+             class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" /></svg>
+            Template
+          </a>
+
+          <!-- MITIGASI ISU 2: ambil SAMPEL ACAK bila kerangka data tidak lengkap -->
+          <button @click="pilihSampel()"
+                  class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 3.75V16.5L12 14.25 7.5 16.5V3.75m9 0H18A2.25 2.25 0 0120.25 6v12A2.25 2.25 0 0118 20.25H6A2.25 2.25 0 013.75 18V6A2.25 2.25 0 016 3.75h1.5m9 0h-9" /></svg>
+            Sampel Acak
+          </button>
+
+          <!-- MITIGASI ISU 1: pemusnahan nomor sesuai kebijakan retensi -->
+          <button @click="musnahkanNomor()"
+                  class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+            Retensi
+          </button>
+
+          <!-- FITUR 2 + MITIGASI ISU 1: Ekspor (default nomor TERSAMAR + watermark) -->
+          <a href="/api/export-report" @click="catatEkspor()"
+             class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+            Ekspor
+          </a>
+
+          <!-- Upload CSV -->
+          <label class="cursor-pointer inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
+            <span>Upload CSV</span>
+            <input type="file" accept=".csv" class="hidden" @change="uploadCsv($event)" />
+          </label>
+
+          <!-- Tambah manual -->
+          <button @click="showForm = !showForm"
+                  class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+            Tambah Manual
+          </button>
+
+          <!-- Reset status -->
+          <button @click="resetAll()"
+                  class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+            Reset
+          </button>
+
+          <!-- Blast SEMUA (oranye) -->
+          <button @click="blast()" :disabled="blasting"
+                  class="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
+            <span x-text="blasting ? 'Mengirim…' : 'Blast Semua'"></span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Form tambah manual -->
+      <div x-show="showForm" x-transition class="mt-5 border-t border-slate-100 pt-5">
+        <div class="grid grid-cols-1 sm:grid-cols-6 gap-3">
+          <input x-model="form.nama_usaha" placeholder="Nama Usaha" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          <input x-model="form.no_hp" placeholder="No HP Responden" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          <input x-model="form.nama_petugas" placeholder="Nama Petugas" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          <input x-model="form.no_hp_petugas" placeholder="No HP Petugas (opsional)" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          <select x-model="form.sumber_data" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+            <option value="MANUAL_PML">Sumber: Manual PML</option>
+            <option value="SQL_LAB">Sumber: SQL Lab</option>
+            <option value="CAPI">Sumber: CAPI</option>
+            <option value="LAINNYA">Sumber: Lainnya</option>
+          </select>
+          <button @click="addManual()" class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition">Simpan</button>
+        </div>
+        <p class="text-xs text-slate-400 mt-2">No HP Petugas dipakai untuk fitur <span class="font-semibold">Auto-Teguran</span> saat responden membalas "2" (Fraud).</p>
+      </div>
+
+      <!-- 3) BANNER INLINE: status menetap (tidak hilang sendiri) -->
+      <div x-show="!waReady" class="mt-4 flex items-start gap-2.5 rounded-lg bg-amber-50 ring-1 ring-amber-200 px-4 py-3">
+        <svg class="h-5 w-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+        <p class="text-sm text-amber-800">Gateway WhatsApp belum aktif. Pindai QR terlebih dahulu sebelum mengirim pesan verifikasi.</p>
+      </div>
+      <div class="mt-4 flex items-start gap-2.5 rounded-lg bg-slate-50 ring-1 ring-slate-200 px-4 py-3">
+        <svg class="h-5 w-5 text-slate-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+        <p class="text-sm text-slate-600">Nomor responden ditampilkan tersamar. Membuka nomor lengkap akan tercatat dalam jejak audit.</p>
+      </div>
+    </section>
+
+    <!-- ============ FITUR 4: KARTU STATISTIK (grid responsif 1 -> 3 kolom) ============ -->
+    <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-700">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-sm font-medium text-slate-500">Total Pesan Terkirim</p>
+            <p class="mt-2 text-4xl font-extrabold text-blue-700" x-text="stats.terkirim"></p>
+          </div>
+          <div class="h-12 w-12 rounded-xl bg-blue-50 flex items-center justify-center">
+            <svg class="h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-slate-400">dari <span x-text="stats.total"></span> total responden</p>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-emerald-500">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-sm font-medium text-slate-500">Responden Valid (Balas 1)</p>
+            <p class="mt-2 text-4xl font-extrabold text-emerald-600" x-text="stats.valid"></p>
+          </div>
+          <div class="h-12 w-12 rounded-xl bg-emerald-50 flex items-center justify-center">
+            <svg class="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-slate-400">termasuk hasil validasi manual</p>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-red-500">
+        <div class="flex items-start justify-between">
+          <div>
+            <p class="text-sm font-medium text-slate-500">Indikasi Fraud (Balas 2)</p>
+            <p class="mt-2 text-4xl font-extrabold text-red-600" x-text="stats.fraud"></p>
+          </div>
+          <div class="h-12 w-12 rounded-xl bg-red-50 flex items-center justify-center">
+            <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+          </div>
+        </div>
+        <p class="mt-3 text-xs text-slate-400">wajib ditindaklanjuti / cek lapangan</p>
+      </div>
+    </section>
+
+    <!-- ============================ GRAFIK + TABEL ============================ -->
+    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div class="bg-white rounded-xl shadow-md p-6 lg:col-span-1">
+        <h3 class="text-base font-bold text-slate-900">Komposisi Respons</h3>
+        <p class="text-sm text-slate-500 mb-4">Sebaran status seluruh responden</p>
+        <div class="relative h-64"><canvas id="chartRespons"></canvas></div>
+      </div>
+
+      <div class="bg-white rounded-xl shadow-md lg:col-span-2 overflow-hidden">
+        <div class="p-5 sm:p-6 border-b border-slate-100 space-y-4">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div>
+              <h3 class="text-base font-bold text-slate-900">Data Responden</h3>
+              <p class="text-sm text-slate-500">Diperbarui otomatis setiap 5 detik</p>
+            </div>
+            <!-- FITUR 1: Blast Terpilih -->
+            <button @click="blastSelected()"
+                    class="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50 transition"
+                    :disabled="selected.length === 0">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
+              Blast Terpilih (<span x-text="selected.length"></span>)
+            </button>
+          </div>
+
+          <!-- TAB: Semua / Jalur Hijau (Valid) / Indikasi Fraud -->
+          <div class="flex items-center gap-2 flex-wrap">
+            <button @click="tab='semua'" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+                    :class="tab==='semua' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
+              Semua (<span x-text="rows.length"></span>)
+            </button>
+            <button @click="tab='hijau'" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+                    :class="tab==='hijau' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'">
+              Jalur Hijau (<span x-text="stats.valid"></span>)
+            </button>
+            <button @click="tab='fraud'" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
+                    :class="tab==='fraud' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'">
+              Indikasi Fraud (<span x-text="stats.fraud"></span>)
+            </button>
+          </div>
+
+          <!-- FITUR 5: Pencarian + Filter Dropdown -->
+          <div class="flex flex-col sm:flex-row gap-3">
+            <div class="relative flex-1">
+              <input x-model="search" placeholder="Cari usaha / petugas / nomor…"
+                     class="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+              <svg class="h-4 w-4 text-slate-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+            </div>
+            <select x-model="filterStatus" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+              <option value="">Semua Status</option>
+              <option value="VALID">Valid</option>
+              <option value="FRAUD">Indikasi Fraud</option>
+              <option value="TERKIRIM">Terkirim</option>
+              <option value="BELUM">Belum Merespon</option>
+              <option value="PENDING">Belum Dikirim</option>
+            </select>
+            <select x-model="filterPetugas" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+              <option value="">Semua Petugas</option>
+              <template x-for="p in petugasList" :key="p"><option :value="p" x-text="p"></option></template>
+            </select>
+            <!-- MITIGASI ISU 2: saring berdasarkan ASAL DATA -->
+            <select x-model="filterSumber" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+              <option value="">Semua Sumber</option>
+              <option value="SQL_LAB">SQL Lab</option>
+              <option value="CAPI">CAPI</option>
+              <option value="MANUAL_PML">Manual PML</option>
+              <option value="LAINNYA">Lainnya</option>
+            </select>
+          </div>
+        </div>
+
+        <!-- FITUR 4: overflow-x-auto agar aman di layar HP -->
+        <div class="overflow-x-auto thin-scroll">
+          <table class="w-full text-sm text-left whitespace-nowrap">
+            <thead class="bg-slate-50 text-slate-500 uppercase text-xs tracking-wide">
+              <tr>
+                <th class="px-4 py-3"><input type="checkbox" @change="toggleAll($event)" :checked="allChecked" class="rounded border-slate-300 text-blue-700 focus:ring-blue-500" /></th>
+                <th class="px-5 py-3 font-semibold">Nama Usaha</th>
+                <th class="px-5 py-3 font-semibold">No HP</th>
+                <th class="px-5 py-3 font-semibold">Petugas</th>
+                <th class="px-5 py-3 font-semibold">Sumber</th>
+                <th class="px-5 py-3 font-semibold">Status</th>
+                <th class="px-5 py-3 font-semibold">Waktu Balas</th>
+                <th class="px-5 py-3 font-semibold">Aksi</th>
+              </tr>
+            </thead>
+            <tbody>
+              <template x-for="r in filtered" :key="r.id">
+                <tr class="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
+                  <td class="px-4 py-3"><input type="checkbox" :value="String(r.id)" x-model="selected" class="rounded border-slate-300 text-blue-700 focus:ring-blue-500" /></td>
+                  <td class="px-5 py-3 font-medium text-slate-800" x-text="r.nama_usaha"></td>
+                  <!-- MITIGASI ISU 1: nomor tersamar; klik ikon mata untuk membuka (tercatat di audit) -->
+                  <td class="px-5 py-3 text-slate-600">
+                    <div class="flex items-center gap-1.5">
+                      <span class="font-mono" x-text="nomorTampil(r)"></span>
+                      <button x-show="!dibuka[r.id] && r.no_hp !== '[DIMUSNAHKAN]'" @click="bukaNomor(r.id)"
+                              title="Tampilkan nomor lengkap (akan dicatat di jejak audit)"
+                              class="text-slate-400 hover:text-blue-700 transition">
+                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                      </button>
+                    </div>
+                  </td>
+                  <td class="px-5 py-3 text-slate-600" x-text="r.nama_petugas"></td>
+                  <td class="px-5 py-3">
+                    <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600" x-text="labelSumber(r.sumber_data)"></span>
+                  </td>
+                  <td class="px-5 py-3">
+                    <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" :class="badge(r.status)" x-text="label(r.status)"></span>
+                  </td>
+                  <td class="px-5 py-3 text-slate-500" x-text="r.waktu_balas || '—'"></td>
+                  <td class="px-5 py-3">
+                    <!-- FITUR 7: Validasi Manual + One-Click Copy (hanya baris Fraud) -->
+                    <template x-if="r.status === 'FRAUD'">
+                      <div class="flex items-center gap-2">
+                        <button @click="resolve(r.id)" class="text-xs font-semibold text-orange-600 border border-orange-300 rounded-lg px-2.5 py-1 hover:bg-orange-50 transition">Validasi Manual</button>
+                        <button @click="copyRejection(r)" title="Salin teks penolakan standar"
+                                class="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg px-2.5 py-1 hover:bg-slate-50 transition">
+                          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25" /></svg>
+                          Salin
+                        </button>
+                      </div>
+                    </template>
+                    <template x-if="r.status !== 'FRAUD'"><span class="text-slate-300">—</span></template>
+                  </td>
+                </tr>
+              </template>
+              <tr x-show="filtered.length === 0">
+                <td colspan="8" class="px-5 py-12 text-center text-slate-400">Tidak ada data yang cocok. Upload CSV / tambah responden, atau ubah filter.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ MITIGASI ISU 1: JEJAK AUDIT (AUDIT TRAIL) ============ -->
+    <section class="bg-white rounded-xl shadow-md overflow-hidden">
+      <div class="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100">
+        <div>
+          <h3 class="text-base font-bold text-slate-900">Jejak Audit Akses Data</h3>
+          <p class="text-sm text-slate-500">Setiap akses dan pengolahan data rahasia tercatat otomatis.</p>
+        </div>
+        <div class="flex items-center gap-2">
+          <!-- Rekap asal data (MITIGASI ISU 2) -->
+          <template x-for="rk in rekapSumber" :key="rk.sumber">
+            <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+              <span x-text="labelSumber(rk.sumber)"></span>
+              <span class="font-bold" x-text="rk.jumlah"></span>
+            </span>
+          </template>
+          <button @click="showAudit = !showAudit"
+                  class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+                  x-text="showAudit ? 'Sembunyikan' : 'Tampilkan'"></button>
+        </div>
+      </div>
+      <div x-show="showAudit" x-transition class="overflow-x-auto thin-scroll max-h-80">
+        <table class="w-full text-sm text-left whitespace-nowrap">
+          <thead class="bg-slate-50 text-slate-500 uppercase text-xs tracking-wide sticky top-0">
+            <tr>
+              <th class="px-5 py-3 font-semibold">Waktu</th>
+              <th class="px-5 py-3 font-semibold">Pengguna</th>
+              <th class="px-5 py-3 font-semibold">Aksi</th>
+              <th class="px-5 py-3 font-semibold">Keterangan</th>
+              <th class="px-5 py-3 font-semibold">Baris</th>
+            </tr>
+          </thead>
+          <tbody>
+            <template x-for="a in auditLog" :key="a.id">
+              <tr class="border-b border-slate-100 hover:bg-slate-50/70">
+                <td class="px-5 py-2.5 text-slate-500 font-mono text-xs" x-text="a.created_at"></td>
+                <td class="px-5 py-2.5 text-slate-700" x-text="a.user_email"></td>
+                <td class="px-5 py-2.5">
+                  <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold" :class="badgeAksi(a.aksi)" x-text="a.aksi"></span>
+                </td>
+                <td class="px-5 py-2.5 text-slate-500" x-text="a.detail"></td>
+                <td class="px-5 py-2.5 text-slate-500" x-text="a.jumlah || '—'"></td>
+              </tr>
+            </template>
+            <tr x-show="auditLog.length === 0">
+              <td colspan="5" class="px-5 py-10 text-center text-slate-400">Belum ada aktivitas tercatat.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <footer class="text-center text-xs text-slate-400 pt-2 pb-6">
+      Sistem Instant Feedback Loop · Aktualisasi CPNS · BPS Kabupaten Karangasem © 2026
+    </footer>
+  </main>
+
+  <!-- ============================ LOGIKA ALPINE ============================ -->
+  <script>
+    function auditApp() {
+      return {
+        stats: { total: 0, terkirim: 0, valid: 0, fraud: 0, pending: 0, gagal: 0 },
+        rows: [],
+        me: {},                 // info user login (navbar)
+        tab: 'semua',           // tab aktif: semua | hijau | fraud
+        // --- MITIGASI ISU 1: pakta, masking, audit ---
+        paktaOK: true,          // true dulu agar modal tak berkedip saat memuat
+        paktaCentang: false,
+        paktaVersi: '1.0',
+        dibuka: {},             // { id: nomorLengkap } hasil aksi "buka nomor"
+        auditLog: [],
+        showAudit: false,
+        // --- MITIGASI ISU 2: provenance & sampling ---
+        filterSumber: '',
+        rekapSumber: [],
+        search: '',
+        filterStatus: '',
+        filterPetugas: '',
+        selected: [],           // id terpilih (checkbox) -> string
+        waReady: false,
+        hasQR: false,
+        blasting: false,
+        showForm: false,
+        form: { nama_usaha: '', no_hp: '', nama_petugas: '', no_hp_petugas: '', sumber_data: 'MANUAL_PML' },
+        // ---- SISTEM NOTIFIKASI ----
+        toasts: [],        // daftar toast aktif
+        _toastId: 0,
+        dlg: null,         // dialog aktif (konfirmasi / input); null = tertutup
+        chart: null,
+
+        // Daftar petugas unik (untuk dropdown filter) — FITUR 5
+        get petugasList() {
+          return [...new Set(this.rows.map((r) => r.nama_petugas).filter(Boolean))].sort();
+        },
+
+        // Data terfilter: pencarian + status + petugas — FITUR 5
+        get filtered() {
+          const q = this.search.trim().toLowerCase();
+          return this.rows.filter((r) => {
+            // Tab Jalur Hijau / Indikasi Fraud
+            if (this.tab === 'hijau' && !(r.status === 'VALID' || r.status === 'VALID_MANUAL')) return false;
+            if (this.tab === 'fraud' && r.status !== 'FRAUD') return false;
+            if (q && ![r.nama_usaha, r.nama_petugas, r.no_hp].join(' ').toLowerCase().includes(q)) return false;
+            if (this.filterPetugas && r.nama_petugas !== this.filterPetugas) return false;
+            if (this.filterSumber && (r.sumber_data || 'MANUAL_PML') !== this.filterSumber) return false;
+            if (!this.matchesStatus(r)) return false;
+            return true;
+          });
+        },
+        matchesStatus(r) {
+          const f = this.filterStatus;
+          if (!f) return true;
+          if (f === 'VALID') return r.status === 'VALID' || r.status === 'VALID_MANUAL';
+          if (f === 'FRAUD') return r.status === 'FRAUD';
+          if (f === 'TERKIRIM') return ['TERKIRIM', 'VALID', 'FRAUD', 'VALID_MANUAL'].includes(r.status);
+          if (f === 'BELUM') return r.status === 'TERKIRIM';
+          if (f === 'PENDING') return r.status === 'PENDING';
+          return true;
+        },
+
+        // Checkbox "pilih semua" (mengikuti hasil filter) — FITUR 1
+        get allChecked() {
+          const f = this.filtered;
+          return f.length > 0 && f.every((r) => this.selected.includes(String(r.id)));
+        },
+        toggleAll(e) {
+          this.selected = e.target.checked ? this.filtered.map((r) => String(r.id)) : [];
+        },
+
+        init() {
+          this.initChart();
+          fetch('/api/me').then((r) => r.json()).then((m) => (this.me = m)).catch(() => {});
+          this.cekPakta();
+          this.refresh();
+          setInterval(() => this.refresh(), 5000);
+
+          // FITUR 6: Socket.io untuk QR & status real-time
+          try {
+            const socket = io();
+            socket.on('wa-qr', (qr) => { this.waReady = false; this.$nextTick(() => this.renderQR(qr)); });
+            socket.on('wa-ready', () => { this.waReady = true; this.hasQR = false; this.toast('WhatsApp Gateway aktif', 'sukses', 'Siap mengirim pesan verifikasi.'); });
+            socket.on('wa-disconnected', () => { this.waReady = false; this.toast('WhatsApp Gateway terputus', 'gagal', 'Pindai ulang QR untuk menyambungkan.'); });
+
+            // ---- NOTIFIKASI REAL-TIME: balasan responden masuk seketika ----
+            socket.on('balasan-baru', (d) => {
+              if (d.status === 'FRAUD') {
+                this.toast(`Indikasi fraud: ${d.nama_usaha}`, 'gagal', `Responden menyatakan tidak ada kunjungan petugas ${d.nama_petugas}.`);
+              } else {
+                this.toast(`Terverifikasi valid: ${d.nama_usaha}`, 'sukses', `Kunjungan petugas ${d.nama_petugas} dikonfirmasi responden.`);
+              }
+              this.refresh();
+            });
+
+            socket.on('teguran-terkirim', (d) => {
+              this.toast(`Auto-teguran terkirim ke ${d.nama_petugas}`, 'peringatan', `Diminta mengunjungi ulang ${d.nama_usaha} dalam 1x24 jam.`);
+            });
+
+            socket.on('blast-selesai', (d) => {
+              this.toast('Pengiriman selesai', d.gagal > 0 ? 'peringatan' : 'info', `${d.sukses} terkirim, ${d.gagal} gagal dari ${d.total} responden.`);
+              this.refresh();
+            });
+          } catch (e) { /* socket opsional */ }
+        },
+
+        async refresh() {
+          try {
+            const rs = await fetch('/api/stats');
+            if (rs.status === 401) { window.location = '/login'; return; } // sesi habis
+            if (rs.status === 403) { this.paktaOK = false; return; }       // belum setuju pakta
+            this.paktaOK = true;
+            this.stats = await rs.json();
+            this.rows = await fetch('/api/responden').then((r) => r.json());
+            this.waReady = (await fetch('/api/wa-status').then((r) => r.json())).ready;
+            this.rekapSumber = await fetch('/api/rekap-sumber').then((r) => r.json());
+            this.auditLog = await fetch('/api/audit-log?limit=100').then((r) => r.json());
+            this.updateChart();
+          } catch (e) { /* diamkan error jaringan sesaat */ }
+        },
+
+        async logout() {
+          try {
+            const r = await fetch('/logout', { method: 'POST' }).then((r) => r.json());
+            window.location = r.redirect || '/login';
+          } catch (e) { window.location = '/login'; }
+        },
+
+        // FITUR One-Click Copy: salin teks penolakan standar untuk data Fraud
+        copyRejection(r) {
+          const text = 'Dokumen ditolak otomatis. Responden mengonfirmasi tidak ada kunjungan fisik. Harap kunjungi ulang.';
+          const done = () => this.toast('Teks penolakan disalin ke clipboard.');
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(text).then(done).catch(() => this.fallbackCopy(text, done));
+          } else {
+            this.fallbackCopy(text, done);
+          }
+        },
+        fallbackCopy(text, done) {
+          const ta = document.createElement('textarea');
+          ta.value = text;
+          ta.style.position = 'fixed';
+          ta.style.opacity = '0';
+          document.body.appendChild(ta);
+          ta.select();
+          try { document.execCommand('copy'); done(); } catch (e) { this.toast('Gagal menyalin.', 'error'); }
+          document.body.removeChild(ta);
+        },
+
+        // FITUR 6: render QR di web pakai QRCode.js
+        renderQR(text) {
+          const box = this.$refs.qrbox;
+          if (!box || typeof QRCode === 'undefined') return;
+          box.innerHTML = '';
+          new QRCode(box, { text, width: 220, height: 220, correctLevel: QRCode.CorrectLevel.M });
+          this.hasQR = true;
+        },
+
+        // --- Aksi -------------------------------------------------------------
+        async uploadCsv(event) {
+          const file = event.target.files[0];
+          if (!file) return;
+          const fd = new FormData();
+          fd.append('file', file);
+          try {
+            const res = await fetch('/api/upload', { method: 'POST', body: fd }).then((r) => r.json());
+            if (res.error) return this.toast(res.error, 'error');
+            this.toast(`Impor selesai: ${res.ok} data masuk, ${res.skip} dilewati.`);
+            this.refresh();
+          } catch (e) { this.toast('Gagal upload: ' + e.message, 'error'); }
+          finally { event.target.value = ''; }
+        },
+
+        async addManual() {
+          if (!this.form.nama_usaha || !this.form.no_hp || !this.form.nama_petugas) return this.toast('Semua kolom wajib diisi.', 'error');
+          const res = await fetch('/api/responden', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(this.form) }).then((r) => r.json());
+          if (res.error) return this.toast(res.error, 'error');
+          this.toast('Responden ditambahkan.');
+          this.form = { nama_usaha: '', no_hp: '', nama_petugas: '', no_hp_petugas: '', sumber_data: this.form.sumber_data };
+          this.showForm = false;
+          this.refresh();
+        },
+
+        async blast() {
+          this.blasting = true;
+          try {
+            const res = await fetch('/api/blast', { method: 'POST' }).then((r) => r.json());
+            this.toast(res.error || res.message, res.error ? 'error' : 'success');
+          } catch (e) { this.toast('Gagal memulai blast: ' + e.message, 'error'); }
+          finally { setTimeout(() => (this.blasting = false), 1500); }
+        },
+
+        // FITUR 1: kirim ke responden terpilih
+        async blastSelected() {
+          if (this.selected.length === 0) return this.toast('Pilih minimal satu responden dulu.', 'error');
+          const ids = this.selected.map(Number);
+          try {
+            const res = await fetch('/api/blast-selected', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }) }).then((r) => r.json());
+            this.toast(res.error || res.message, res.error ? 'error' : 'success');
+            this.selected = [];
+            this.refresh();
+          } catch (e) { this.toast('Gagal: ' + e.message, 'error'); }
+        },
+
+        // FITUR 7: validasi manual (Fraud -> Valid Manual)
+        async resolve(id) {
+          const r = this.rows.find((x) => x.id === id) || {};
+          const ok = await this.konfirmasi({
+            varian: 'normal',
+            judul: 'Validasi manual',
+            pesan: `Tandai "${r.nama_usaha || 'responden ini'}" sebagai VALID berdasarkan pemeriksaan lapangan.`,
+            detail: 'Status berubah dari Indikasi Fraud menjadi Valid (Manual). Perubahan tercatat di jejak audit.',
+            teksOk: 'Tandai valid',
+          });
+          if (!ok) return;
+          try {
+            await fetch('/api/resolve/' + id, { method: 'POST' }).then((r) => r.json());
+            this.toast('Status diubah menjadi Valid (Manual).');
+            this.refresh();
+          } catch (e) { this.toast('Gagal: ' + e.message, 'error'); }
+        },
+
+        async resetAll() {
+          const ok = await this.konfirmasi({
+            varian: 'bahaya',
+            judul: 'Reset seluruh status?',
+            pesan: 'Semua responden dikembalikan ke status "Menunggu" sehingga dapat dikirimi pesan verifikasi ulang.',
+            detail: 'Hasil balasan responden (Valid/Fraud) yang sudah masuk akan hilang.',
+            teksOk: 'Ya, reset',
+          });
+          if (!ok) return;
+          try {
+            const res = await fetch('/api/reset', { method: 'POST' }).then((r) => r.json());
+            this.toast(`${res.changes} data direset ke "Menunggu". Silakan Blast lagi.`);
+            this.refresh();
+          } catch (e) { this.toast('Gagal reset: ' + e.message, 'error'); }
+        },
+
+        // ===================== MITIGASI ISU 1: KERAHASIAAN =====================
+        async cekPakta() {
+          try {
+            const p = await fetch('/api/pakta').then((r) => r.json());
+            this.paktaVersi = p.versi;
+            this.paktaOK = !!p.disetujui;
+          } catch (e) { /* biarkan; refresh() akan mendeteksi 403 */ }
+        },
+
+        async setujuiPakta() {
+          if (!this.paktaCentang) return;
+          try {
+            const res = await fetch('/api/pakta', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ setuju: true }),
+            });
+            const j = await res.json();
+            if (!res.ok) return this.toast(j.error || 'Gagal menyimpan persetujuan.', 'error');
+            this.paktaOK = true;
+            this.toast('Pakta Integritas disetujui. Akses data dibuka.');
+            this.refresh();
+          } catch (e) { this.toast('Gagal: ' + e.message, 'error'); }
+        },
+
+        // Nomor ditampilkan tersamar; hanya terbuka bila pengguna menekan ikon mata
+        nomorTampil(r) {
+          return this.dibuka[r.id] || r.no_hp;
+        },
+
+        async bukaNomor(id) {
+          const ok = await this.konfirmasi({
+            varian: 'peringatan',
+            judul: 'Tampilkan nomor lengkap?',
+            pesan: 'Nomor responden termasuk data rahasia yang dilindungi.',
+            detail: 'Tindakan ini dicatat dalam jejak audit beserta identitas dan waktu akses Anda.',
+            teksOk: 'Ya, tampilkan',
+          });
+          if (!ok) return;
+          try {
+            const res = await fetch('/api/reveal/' + id);
+            const j = await res.json();
+            if (!res.ok) return this.toast(j.error || 'Gagal membuka nomor.', 'error');
+            this.dibuka = { ...this.dibuka, [id]: j.no_hp };
+            this.toast('Nomor dibuka. Tindakan tercatat di jejak audit.');
+            this.refresh();
+          } catch (e) { this.toast('Gagal: ' + e.message, 'error'); }
+        },
+
+        catatEkspor() {
+          this.toast('Berkas ekspor bersifat RAHASIA & memuat penanda identitas Anda.');
+          setTimeout(() => this.refresh(), 1200); // segarkan jejak audit
+        },
+
+        async musnahkanNomor() {
+          // Langkah 1: tentukan batas retensi
+          const jwb = await this.input({
+            varian: 'bahaya',
+            judul: 'Pemusnahan nomor telepon',
+            pesan: 'Menghapus nomor pada data yang sudah selesai diverifikasi, sesuai kebijakan retensi data.',
+            label: 'Batas retensi (hari)',
+            tipeInput: 'number',
+            nilai: 30,
+            hint: 'Contoh: 30 = musnahkan data yang selesai lebih dari 30 hari lalu.',
+            teksOk: 'Lanjut',
+            validasi: (v) => {
+              const n = Number(v);
+              return !Number.isFinite(n) || n < 0 ? 'Masukkan angka 0 atau lebih.' : '';
+            },
+          });
+          if (jwb === null) return;
+          const hari = Number(jwb);
+
+          // Langkah 2: konfirmasi berbahaya — wajib mengetik kata kunci
+          const ok = await this.konfirmasi({
+            varian: 'bahaya',
+            judul: 'Musnahkan nomor telepon',
+            pesan: `Nomor pada data yang selesai lebih dari ${hari} hari lalu akan dihapus permanen.`,
+            detail: 'Tindakan ini tidak dapat dibatalkan. Status dan statistik tetap tersimpan untuk laporan; hanya nomor telepon yang dihapus.',
+            ketikKunci: 'MUSNAHKAN',
+            teksOk: 'Musnahkan',
+          });
+          if (!ok) return;
+          try {
+            const j = await fetch('/api/purge', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ hari }),
+            }).then((r) => r.json());
+            this.toast(j.message || 'Selesai.');
+            this.dibuka = {};
+            this.refresh();
+          } catch (e) { this.toast('Gagal: ' + e.message, 'error'); }
+        },
+
+        badgeAksi(aksi) {
+          const map = {
+            LOGIN: 'bg-slate-100 text-slate-600',
+            SETUJU_PAKTA: 'bg-blue-100 text-blue-700',
+            BUKA_NOMOR: 'bg-amber-100 text-amber-700',
+            EKSPOR_DATA: 'bg-purple-100 text-purple-700',
+            MUSNAHKAN_NOMOR: 'bg-red-100 text-red-700',
+            IMPOR_DATA: 'bg-emerald-100 text-emerald-700',
+            TAMBAH_DATA: 'bg-emerald-100 text-emerald-700',
+            BLAST_SEMUA: 'bg-orange-100 text-orange-700',
+            BLAST_TERPILIH: 'bg-orange-100 text-orange-700',
+            PILIH_SAMPEL: 'bg-teal-100 text-teal-700',
+            VALIDASI_MANUAL: 'bg-indigo-100 text-indigo-700',
+          };
+          return map[aksi] || 'bg-slate-100 text-slate-600';
+        },
+
+        // ===================== MITIGASI ISU 2: SUMBER DATA =====================
+        labelSumber(s) {
+          return ({ SQL_LAB: 'SQL Lab', CAPI: 'CAPI', MANUAL_PML: 'Manual PML', LAINNYA: 'Lainnya' })[s] || (s || 'Manual PML');
+        },
+
+        // Pilih sampel acak dari data yang belum dikirim, lalu centang otomatis
+        async pilihSampel() {
+          const tersedia = this.rows.filter((r) => r.status === 'PENDING').length;
+          if (tersedia === 0) return this.toast('Tidak ada data berstatus "Menunggu"', 'peringatan', 'Impor data atau gunakan tombol Reset.');
+          const jwb = await this.input({
+            judul: 'Ambil sampel acak',
+            pesan: `Dipilih secara acak dari ${tersedia} data berstatus "Menunggu".`,
+            label: 'Jumlah responden',
+            tipeInput: 'number',
+            nilai: Math.max(1, Math.min(10, tersedia)),
+            hint: 'Disarankan 10–20% dari total kunjungan harian.',
+            teksOk: 'Pilih sampel',
+            validasi: (v) => {
+              const n = Number(v);
+              if (!Number.isFinite(n) || n < 1) return 'Masukkan angka minimal 1.';
+              if (n > tersedia) return `Maksimal ${tersedia} (jumlah data yang tersedia).`;
+              return '';
+            },
+          });
+          if (jwb === null) return;
+          const jumlah = Number(jwb);
+          try {
+            const j = await fetch('/api/sample', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ jumlah }),
+            }).then((r) => r.json());
+            if (j.error) return this.toast(j.error, 'error');
+            this.selected = j.ids.map(String);
+            this.tab = 'semua';
+            this.toast(`${j.jumlah} responden terpilih acak. Klik "Blast Terpilih" untuk mengirim.`);
+            this.refresh();
+          } catch (e) { this.toast('Gagal: ' + e.message, 'error'); }
+        },
+
+        // ===================== MESIN NOTIFIKASI =====================
+        // toast(pesan, varian) -> varian: 'sukses' | 'gagal' | 'peringatan' | 'info'
+        // Nama lama ('success'/'error') tetap dikenali agar kode lama tidak rusak.
+        toast(pesan, varian = 'sukses', pesanKedua = '') {
+          const peta = { success: 'sukses', error: 'gagal', warning: 'peringatan', info: 'info' };
+          const v = peta[varian] || varian;
+          const id = ++this._toastId;
+          this.toasts.push({ id, varian: v, judul: pesan, pesan: pesanKedua });
+          // Toast gagal bertahan lebih lama agar sempat terbaca
+          const durasi = v === 'gagal' ? 7000 : 4500;
+          setTimeout(() => this.tutupToast(id), durasi);
+        },
+        tutupToast(id) {
+          this.toasts = this.toasts.filter((t) => t.id !== id);
+        },
+        gayaToast(v) {
+          return ({
+            sukses:     { ring: 'ring-emerald-200', ikon: 'text-emerald-600' },
+            gagal:      { ring: 'ring-red-200',     ikon: 'text-red-600' },
+            peringatan: { ring: 'ring-amber-200',   ikon: 'text-amber-600' },
+            info:       { ring: 'ring-blue-200',    ikon: 'text-blue-700' },
+          })[v] || { ring: 'ring-slate-200', ikon: 'text-slate-500' };
+        },
+        ikonToast(v) {
+          const w = 'class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"';
+          const p = {
+            sukses:     'M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
+            gagal:      'M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z',
+            peringatan: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z',
+            info:       'M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z',
+          }[v] || 'M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0z';
+          return `<svg ${w}><path stroke-linecap="round" stroke-linejoin="round" d="${p}" /></svg>`;
+        },
+
+        // ---- DIALOG KONFIRMASI: pengganti confirm() ----
+        // Pemakaian: if (!(await this.konfirmasi({ judul, pesan, varian:'bahaya' }))) return;
+        konfirmasi(opsi = {}) {
+          return new Promise((resolve) => {
+            this.dlg = {
+              tipe: 'konfirmasi',
+              varian: opsi.varian || 'normal',   // normal | bahaya | peringatan
+              judul: opsi.judul || 'Lanjutkan?',
+              pesan: opsi.pesan || '',
+              detail: opsi.detail || '',
+              ketikKunci: opsi.ketikKunci || '',
+              kunciDiketik: '',
+              teksOk: opsi.teksOk || 'Lanjutkan',
+              teksBatal: opsi.teksBatal || 'Batal',
+              galat: '',
+              _resolve: resolve,
+            };
+          });
+        },
+
+        // ---- DIALOG INPUT: pengganti prompt() ----
+        // Mengembalikan nilai (string) atau null bila dibatalkan.
+        input(opsi = {}) {
+          return new Promise((resolve) => {
+            this.dlg = {
+              tipe: 'input',
+              varian: opsi.varian || 'normal',
+              judul: opsi.judul || 'Masukkan nilai',
+              pesan: opsi.pesan || '',
+              detail: opsi.detail || '',
+              label: opsi.label || '',
+              tipeInput: opsi.tipeInput || 'text',
+              nilai: opsi.nilai !== undefined ? String(opsi.nilai) : '',
+              hint: opsi.hint || '',
+              teksOk: opsi.teksOk || 'Simpan',
+              teksBatal: opsi.teksBatal || 'Batal',
+              validasi: opsi.validasi || null,   // fn(nilai) -> pesan galat / ''
+              galat: '',
+              _resolve: resolve,
+            };
+            this.$nextTick(() => this.$refs.dlgInput && this.$refs.dlgInput.focus());
+          });
+        },
+
+        dlgOk() {
+          if (!this.dlg) return;
+          const d = this.dlg;
+          // Konfirmasi berbahaya: kata kunci wajib cocok
+          if (d.ketikKunci && d.kunciDiketik.trim().toUpperCase() !== d.ketikKunci.toUpperCase()) {
+            d.galat = `Ketik "${d.ketikKunci}" dengan tepat untuk melanjutkan.`;
+            return;
+          }
+          if (d.tipe === 'input' && d.validasi) {
+            const g = d.validasi(d.nilai);
+            if (g) { d.galat = g; return; }
+          }
+          const hasil = d.tipe === 'input' ? d.nilai : true;
+          this.dlg = null;
+          d._resolve(hasil);
+        },
+        dlgBatal() {
+          if (!this.dlg) return;
+          const d = this.dlg;
+          this.dlg = null;
+          d._resolve(d.tipe === 'input' ? null : false);
+        },
+        gayaDlg() {
+          const v = (this.dlg && this.dlg.varian) || 'normal';
+          return ({
+            normal:     { kotak: 'bg-blue-50 text-blue-700',   detail: 'bg-blue-50 text-blue-800',   tombol: 'bg-blue-700 hover:bg-blue-800' },
+            bahaya:     { kotak: 'bg-red-50 text-red-600',     detail: 'bg-red-50 text-red-700',     tombol: 'bg-red-600 hover:bg-red-700' },
+            peringatan: { kotak: 'bg-amber-50 text-amber-600', detail: 'bg-amber-50 text-amber-800', tombol: 'bg-amber-500 hover:bg-amber-600' },
+          })[v];
+        },
+        ikonDlg() {
+          const v = (this.dlg && this.dlg.varian) || 'normal';
+          const w = 'class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"';
+          const p = {
+            normal:     'M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z',
+            bahaya:     'M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0',
+            peringatan: 'M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z',
+          }[v];
+          return `<svg ${w}><path stroke-linecap="round" stroke-linejoin="round" d="${p}" /></svg>`;
+        },
+
+        // --- Badge status -----------------------------------------------------
+        badge(status) {
+          return ({
+            PENDING: 'bg-slate-100 text-slate-600',
+            TERKIRIM: 'bg-blue-100 text-blue-700',
+            VALID: 'bg-emerald-100 text-emerald-700',
+            VALID_MANUAL: 'bg-teal-100 text-teal-700',
+            FRAUD: 'bg-red-100 text-red-700',
+            GAGAL: 'bg-orange-100 text-orange-700',
+          })[status] || 'bg-slate-100 text-slate-600';
+        },
+        label(status) {
+          return ({
+            PENDING: 'Menunggu',
+            TERKIRIM: 'Terkirim',
+            VALID: 'Valid',
+            VALID_MANUAL: 'Valid (Manual)',
+            FRAUD: 'Indikasi Fraud',
+            GAGAL: 'Gagal Kirim',
+          })[status] || status;
+        },
+
+        // --- Chart ------------------------------------------------------------
+        initChart() {
+          const ctx = document.getElementById('chartRespons');
+          this.chart = new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+              labels: ['Valid', 'Indikasi Fraud', 'Belum Merespon', 'Belum Terkirim', 'Gagal'],
+              datasets: [{ data: [0, 0, 0, 0, 0], backgroundColor: ['#059669', '#dc2626', '#2563eb', '#94a3b8', '#f97316'], borderWidth: 2, borderColor: '#ffffff' }],
+            },
+            options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12 } } } } },
+          });
+        },
+        updateChart() {
+          if (!this.chart) return;
+          const s = this.stats;
+          const belumMerespon = Math.max(0, s.terkirim - s.valid - s.fraud);
+          this.chart.data.datasets[0].data = [s.valid, s.fraud, belumMerespon, s.pending, s.gagal];
+          this.chart.update('none');
+        },
+      };
+    }
+  </script>
+</body>
+</html>

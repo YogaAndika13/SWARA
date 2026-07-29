@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Reset Password — SE2026</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>body{font-family:'Inter',sans-serif}</style>
+</head>
+<body class="bg-gray-50 min-h-screen flex items-center justify-center px-4">
+  <div class="w-full max-w-md">
+    <div class="text-center mb-6">
+      <div class="mx-auto h-14 w-14 rounded-xl bg-blue-700 text-white flex items-center justify-center font-extrabold text-xl">BPS</div>
+      <h1 class="mt-3 text-xl font-bold text-slate-900">Atur Password Baru</h1>
+    </div>
+    <div class="bg-white rounded-xl shadow-md p-6 sm:p-8">
+      <div id="msg" class="hidden mb-4 rounded-lg px-4 py-3 text-sm font-medium"></div>
+      <form id="form" class="space-y-4">
+        <input name="password" type="password" required minlength="6" class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" placeholder="Password baru (min. 6 karakter)" />
+        <button type="submit" class="w-full rounded-lg bg-orange-500 px-4 py-2.5 text-sm font-bold text-white hover:bg-orange-600 transition">Simpan Password</button>
+      </form>
+    </div>
+  </div>
+  <script>
+    const form = document.getElementById('form'), msg = document.getElementById('msg');
+    const token = location.pathname.split('/').pop();
+    function show(t, ok){ msg.textContent=t; msg.className='mb-4 rounded-lg px-4 py-3 text-sm font-medium '+(ok?'bg-emerald-50 text-emerald-700':'bg-red-50 text-red-700'); msg.classList.remove('hidden'); }
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const data = Object.fromEntries(new FormData(form));
+      try {
+        const res = await fetch('/reset/' + token, { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(data) });
+        const j = await res.json();
+        if (!res.ok) return show(j.error || 'Gagal.', false);
+        show('Password diubah! Mengalihkan ke login…', true);
+        setTimeout(() => window.location = '/login', 1500);
+      } catch (err) { show('Terjadi kesalahan jaringan.', false); }
+    });
+  </script>
+</body>
+</html>
