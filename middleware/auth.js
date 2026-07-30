@@ -39,13 +39,15 @@ function attachScope(getKegiatanAktif) {
   return (req, res, next) => {
     const u = req.user || {};
     const isAdmin = u.role === 'Admin';
+    // id_kegiatan: prioritas PILIHAN user (query/body) -> kegiatan tugas -> kegiatan aktif.
+    // PML boleh memilih kegiatannya; data tetap aman karena pml_id dikunci ke dirinya.
     let idKeg = Number(req.query.id_kegiatan || (req.body && req.body.id_kegiatan)) || null;
-
-    if (!isAdmin && u.id_kegiatan) idKeg = Number(u.id_kegiatan); // PML dikunci ke kegiatannya
+    if (!idKeg && u.id_kegiatan) idKeg = Number(u.id_kegiatan); // fallback: kegiatan tugas dari Admin
     if (!idKeg) {
       const aktif = getKegiatanAktif && getKegiatanAktif();
       idKeg = (aktif && aktif.id) || 1;
     }
+    // Admin -> pml_id null (lihat semua PML). PML -> pml_id dirinya (isolasi tetap berlaku).
     req.scope = { id_kegiatan: idKeg, pml_id: isAdmin ? null : u.id };
     next();
   };

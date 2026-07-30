@@ -192,7 +192,7 @@ app.get('/api/reveal/:id', (req, res) => {
 });
 
 // Audit trail (jejak akses data) — transparansi bagi pengawas
-app.get('/api/audit-log', (req, res) => res.json(db.getAuditLog(req.query.limit || 100)));
+app.get('/api/audit-log', requireRole('Admin'), (req, res) => res.json(db.getAuditLog(req.query.limit || 100)));
 
 // MITIGASI ISU 2: rekap provenance (asal-usul) data
 app.get('/api/rekap-sumber', (req, res) => res.json(db.getRekapSumber()));
