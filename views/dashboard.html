@@ -199,6 +199,56 @@
       </div>
     </div>
 
+    <!-- ============ KEANGGOTAAN: KELOLA PML ↔ KEGIATAN (khusus Admin) ============ -->
+    <div x-show="showPml" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
+         @keydown.escape.window="showPml = false">
+      <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6" @click.stop>
+        <div class="flex items-start gap-3 mb-4">
+          <div class="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+            <svg class="h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+          </div>
+          <div>
+            <h2 class="text-lg font-bold text-slate-900">Kelola Keanggotaan PML</h2>
+            <p class="text-sm text-slate-500">Centang kegiatan yang boleh diakses tiap PML. PML hanya bisa berpindah ke kegiatan yang dicentang.</p>
+          </div>
+        </div>
+
+        <div class="max-h-96 overflow-y-auto thin-scroll -mx-2 px-2">
+          <template x-for="p in pmlList" :key="p.id">
+            <div class="rounded-lg border border-slate-200 p-3 mb-2">
+              <div class="flex items-center justify-between mb-2">
+                <div>
+                  <p class="text-sm font-semibold text-slate-800" x-text="p.nama"></p>
+                  <p class="text-xs text-slate-500" x-text="p.email"></p>
+                </div>
+                <span class="text-xs text-slate-400" x-text="p.kegiatan.length + ' kegiatan'"></span>
+              </div>
+              <div class="flex flex-wrap gap-2">
+                <template x-for="k in kegiatanList" :key="k.id">
+                  <button @click="togglePmlKegiatan(p, k.id)"
+                          class="text-xs rounded-full px-3 py-1 font-medium ring-1 transition"
+                          :class="p.kegiatan.includes(k.id)
+                            ? 'bg-blue-600 text-white ring-blue-600'
+                            : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50'">
+                    <span x-text="k.kode"></span>
+                  </button>
+                </template>
+              </div>
+            </div>
+          </template>
+          <p x-show="pmlList.length === 0" class="text-sm text-slate-400 text-center py-8">
+            Belum ada akun PML. PML dapat mendaftar melalui halaman Sign Up.
+          </p>
+        </div>
+
+        <div class="flex items-center justify-between mt-5">
+          <p class="text-xs text-slate-400">Klik lencana kegiatan untuk mendaftarkan / mengeluarkan.</p>
+          <button @click="showPml = false"
+                  class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Selesai</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ============ MITIGASI ISU 1: PAKTA INTEGRITAS KERAHASIAAN DATA ============ -->
     <!-- Modal pemblokir: data tidak dapat diakses sebelum pernyataan disetujui. -->
     <div x-show="!paktaOK" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 px-4">
@@ -296,6 +346,13 @@
                   class="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition">
             <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
             Tambah Survei
+          </button>
+
+          <!-- KEANGGOTAAN: daftarkan PML ke kegiatan (khusus Admin) -->
+          <button x-show="me.role === 'Admin'" @click="bukaKelolaPml()"
+                  class="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition">
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+            Kelola PML
           </button>
 
           <!-- FITUR 2 + MITIGASI ISU 1: Ekspor (default nomor TERSAMAR + watermark) -->
@@ -608,6 +665,8 @@
         kegiatanList: [],       // daftar semua kegiatan
         kegiatanDipilih: '',    // id kegiatan yang sedang dilihat (Admin bisa ganti)
         showKegiatan: false,    // modal kelola survei
+        showPml: false,         // modal kelola keanggotaan PML
+        pmlList: [],            // daftar PML + kegiatannya (khusus Admin)
         formKegiatan: { kode: '', nama: '' },
         kegiatanGalat: '',
         // --- MITIGASI ISU 1: pakta, masking, audit ---
@@ -886,6 +945,31 @@
           const nama = this.kegiatanAktif ? this.kegiatanAktif.nama : 'kegiatan';
           this.toast('Beralih ke ' + nama, 'info');
           this.refresh();
+        },
+
+        // ---- KEANGGOTAAN: kelola PML ↔ kegiatan (khusus Admin) ----
+        async bukaKelolaPml() {
+          try {
+            this.pmlList = await fetch('/api/pml').then((r) => r.json());
+            // pastikan daftar kegiatan terbaru (untuk lencana)
+            this.kegiatanList = await fetch('/api/kegiatan').then((r) => r.json());
+            this.showPml = true;
+          } catch (e) { this.toast('Gagal memuat data PML: ' + e.message, 'gagal'); }
+        },
+
+        async togglePmlKegiatan(p, idKeg) {
+          const sudah = p.kegiatan.includes(idKeg);
+          const aksi = sudah ? 'hapus' : 'tambah';
+          try {
+            const res = await fetch('/api/pml/' + p.id + '/kegiatan', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ id_kegiatan: idKeg, aksi }),
+            });
+            const j = await res.json();
+            if (!res.ok) return this.toast(j.error || 'Gagal memperbarui keanggotaan.', 'gagal');
+            p.kegiatan = j.kegiatan;   // sinkronkan dari server
+            this.toast(sudah ? 'PML dikeluarkan dari kegiatan' : 'PML didaftarkan ke kegiatan', 'sukses');
+          } catch (e) { this.toast('Gagal: ' + e.message, 'gagal'); }
         },
 
         async tambahKegiatan() {

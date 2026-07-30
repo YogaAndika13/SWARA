@@ -31,24 +31,31 @@ function requireRole(...roles) {
 /**
  * ISU 3 — Tentukan cakupan data untuk request ini:
  *   - Admin : boleh lihat semua PML -> pml_id = null (tak difilter pemilik).
- *   - PML   : hanya datanya sendiri -> pml_id = user.id.
- * id_kegiatan diambil dari query/body/user, jatuh ke kegiatan aktif bila kosong.
- * Untuk PML, kegiatan dipaksa ke kegiatan yang ditugaskan (user.id_kegiatan) bila ada.
+ *   - PML   : hanya datanya sendiri -> pml_id = user.id, DAN hanya kegiatan yang ia ikuti.
+ * `db` dipakai untuk membaca keanggotaan (pml_kegiatan) & kegiatan aktif.
  */
-function attachScope(getKegiatanAktif) {
+function attachScope(db) {
   return (req, res, next) => {
     const u = req.user || {};
     const isAdmin = u.role === 'Admin';
-    // id_kegiatan: prioritas PILIHAN user (query/body) -> kegiatan tugas -> kegiatan aktif.
-    // PML boleh memilih kegiatannya; data tetap aman karena pml_id dikunci ke dirinya.
     let idKeg = Number(req.query.id_kegiatan || (req.body && req.body.id_kegiatan)) || null;
-    if (!idKeg && u.id_kegiatan) idKeg = Number(u.id_kegiatan); // fallback: kegiatan tugas dari Admin
-    if (!idKeg) {
-      const aktif = getKegiatanAktif && getKegiatanAktif();
-      idKeg = (aktif && aktif.id) || 1;
+
+    if (isAdmin) {
+      if (!idKeg) idKeg = (db.getKegiatanAktif() || {}).id || 1;
+      req.scope = { id_kegiatan: idKeg, pml_id: null };
+      return next();
     }
-    // Admin -> pml_id null (lihat semua PML). PML -> pml_id dirinya (isolasi tetap berlaku).
-    req.scope = { id_kegiatan: idKeg, pml_id: isAdmin ? null : u.id };
+
+    // --- PML: kegiatan dibatasi HANYA yang ia ikuti/didaftarkan ---
+    const diikuti = db.getKegiatanIdsForPml(u.id); // array id kegiatan
+    if (idKeg && diikuti.includes(idKeg)) {
+      // pilihan sah -> pakai apa adanya
+    } else if (diikuti.length) {
+      idKeg = diikuti[0]; // pilihan di luar keanggotaan -> koreksi ke kegiatan pertama miliknya
+    } else {
+      idKeg = null; // belum didaftarkan ke kegiatan mana pun
+    }
+    req.scope = { id_kegiatan: idKeg, pml_id: u.id, kegiatanDiikuti: diikuti };
     next();
   };
 }

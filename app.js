@@ -107,7 +107,7 @@ app.get('/', ensurePage, (req, res) => {
 // -----------------------------------------------------------------------------
 app.use('/api', ensureApi);
 // ISU 3: setiap request /api otomatis punya req.scope { id_kegiatan, pml_id }
-app.use('/api', attachScope(db.getKegiatanAktif));
+app.use('/api', attachScope(db));
 
 // =============================================================================
 // MITIGASI ISU 1 — PAKTA INTEGRITAS KERAHASIAAN DATA
@@ -160,8 +160,9 @@ app.get('/api/me', (req, res) => {
   res.json({ nama: u.nama, email: u.email, role: u.role || 'PML', scope: req.scope });
 });
 
-// ISU 1: daftar kegiatan/survei untuk pemilih di dashboard
-app.get('/api/kegiatan', (req, res) => res.json(db.listKegiatan()));
+// ISU 1: daftar kegiatan untuk pemilih di dashboard.
+// PML hanya melihat kegiatan yang ia ikuti; Admin melihat semua.
+app.get('/api/kegiatan', (req, res) => res.json(db.listKegiatanForUser(req.user)));
 // Admin dapat menambah kegiatan baru
 app.post('/api/kegiatan', requireRole('Admin'), (req, res) => {
   try {
@@ -170,6 +171,21 @@ app.post('/api/kegiatan', requireRole('Admin'), (req, res) => {
     const id = db.createKegiatan({ kode, nama });
     res.status(201).json({ ok: true, id });
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// --- KELOLA KEANGGOTAAN PML (khusus Admin) ---
+// Daftar PML beserta kegiatan yang diikutinya
+app.get('/api/pml', requireRole('Admin'), (req, res) => res.json(db.listPmlDenganKegiatan()));
+// Daftarkan / keluarkan PML dari sebuah kegiatan
+app.post('/api/pml/:id/kegiatan', requireRole('Admin'), (req, res) => {
+  const pmlId = Number(req.params.id);
+  const idKeg = Number(req.body && req.body.id_kegiatan);
+  const aksi = (req.body && req.body.aksi) || 'tambah';
+  if (!pmlId || !idKeg) return res.status(400).json({ error: 'pml_id dan id_kegiatan wajib.' });
+  if (aksi === 'hapus') db.keluarkanPml(pmlId, idKeg);
+  else db.daftarkanPml(pmlId, idKeg);
+  db.logAudit({ ...jejak(req), aksi: 'KELOLA_PML', detail: `${aksi} PML#${pmlId} @kegiatan#${idKeg}`, jumlah: 1 });
+  res.json({ ok: true, kegiatan: db.getKegiatanIdsForPml(pmlId) });
 });
 
 // -----------------------------------------------------------------------------
@@ -192,6 +208,7 @@ app.get('/api/reveal/:id', (req, res) => {
 });
 
 // Audit trail (jejak akses data) — transparansi bagi pengawas
+// Jejak audit = alat pengawasan -> KHUSUS Admin (Bug: PML tak boleh lihat)
 app.get('/api/audit-log', requireRole('Admin'), (req, res) => res.json(db.getAuditLog(req.query.limit || 100)));
 
 // MITIGASI ISU 2: rekap provenance (asal-usul) data

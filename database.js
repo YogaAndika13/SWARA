@@ -74,6 +74,27 @@ db.exec(`
 const _adaKeg = db.prepare(`SELECT COUNT(*) c FROM kegiatan`).get().c;
 if (!_adaKeg) db.prepare(`INSERT INTO kegiatan (kode, nama) VALUES (?, ?)`).run('UMUM', 'Kegiatan Pendataan BPS');
 
+// Keanggotaan PML pada kegiatan (relasi many-to-many). PML hanya bisa berpindah
+// ke kegiatan yang tercatat di sini (tempat ia "didaftarkan").
+db.exec(`
+  CREATE TABLE IF NOT EXISTS pml_kegiatan (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    pml_id      INTEGER NOT NULL,
+    id_kegiatan INTEGER NOT NULL,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+    UNIQUE(pml_id, id_kegiatan)
+  );
+`);
+// Migrasi mulus (agar PML lama tidak terkunci saat upgrade):
+//  (a) pindahkan kolom users.id_kegiatan lama -> keanggotaan
+//  (b) daftarkan otomatis dari kegiatan tempat PML sudah punya data
+try {
+  db.exec(`INSERT OR IGNORE INTO pml_kegiatan (pml_id, id_kegiatan)
+           SELECT id, id_kegiatan FROM users WHERE id_kegiatan IS NOT NULL`);
+  db.exec(`INSERT OR IGNORE INTO pml_kegiatan (pml_id, id_kegiatan)
+           SELECT DISTINCT pml_id, id_kegiatan FROM responden WHERE pml_id IS NOT NULL`);
+} catch (e) { /* tabel responden mungkin belum ada saat pertama kali; abaikan */ }
+
 // ISU 1 + ISU 3: setiap responden terikat ke kegiatan & ke PML pemilik data
 if (!_punyaKolom('id_kegiatan')) db.exec(`ALTER TABLE responden ADD COLUMN id_kegiatan INTEGER DEFAULT 1`);
 if (!_punyaKolom('pml_id'))      db.exec(`ALTER TABLE responden ADD COLUMN pml_id INTEGER`);
@@ -256,6 +277,36 @@ function getByIdsScoped(ids, scope) {
 
 // ISU 1 — master kegiatan
 const listKegiatan   = () => db.prepare(`SELECT * FROM kegiatan ORDER BY aktif DESC, id DESC`).all();
+
+// Daftar id kegiatan yang diikuti seorang PML
+const getKegiatanIdsForPml = (pmlId) =>
+  db.prepare(`SELECT id_kegiatan FROM pml_kegiatan WHERE pml_id = ?`).all(Number(pmlId)).map((r) => r.id_kegiatan);
+
+// Apakah PML terdaftar pada kegiatan tertentu?
+const pmlPunyaKegiatan = (pmlId, idKeg) =>
+  !!db.prepare(`SELECT 1 FROM pml_kegiatan WHERE pml_id = ? AND id_kegiatan = ?`).get(Number(pmlId), Number(idKeg));
+
+// Kegiatan yang boleh dilihat user: Admin -> semua; PML -> hanya yang ia ikuti.
+function listKegiatanForUser(user) {
+  if (user && user.role === 'Admin') return listKegiatan();
+  return db.prepare(`
+    SELECT k.* FROM kegiatan k
+    JOIN pml_kegiatan pk ON pk.id_kegiatan = k.id
+    WHERE pk.pml_id = ?
+    ORDER BY k.aktif DESC, k.id DESC`).all(Number(user && user.id));
+}
+
+// Daftarkan / keluarkan PML dari kegiatan (dipakai Admin)
+const daftarkanPml = (pmlId, idKeg) =>
+  db.prepare(`INSERT OR IGNORE INTO pml_kegiatan (pml_id, id_kegiatan) VALUES (?, ?)`).run(Number(pmlId), Number(idKeg));
+const keluarkanPml = (pmlId, idKeg) =>
+  db.prepare(`DELETE FROM pml_kegiatan WHERE pml_id = ? AND id_kegiatan = ?`).run(Number(pmlId), Number(idKeg));
+
+// Daftar seluruh PML beserta kegiatan yang diikutinya (untuk panel kelola PML)
+function listPmlDenganKegiatan() {
+  const pmls = db.prepare(`SELECT id, nama, email FROM users WHERE role = 'PML' ORDER BY nama`).all();
+  return pmls.map((p) => ({ ...p, kegiatan: getKegiatanIdsForPml(p.id) }));
+}
 const getKegiatan    = (id) => db.prepare(`SELECT * FROM kegiatan WHERE id = ?`).get(Number(id));
 const getKegiatanAktif = () => db.prepare(`SELECT * FROM kegiatan WHERE aktif = 1 ORDER BY id DESC LIMIT 1`).get();
 function createKegiatan({ kode, nama }) {
@@ -410,6 +461,8 @@ module.exports = {
   db,
   getAllScoped, getStatsScoped, getByIdScoped, getPendingScoped,   // ISU 3
   listKegiatan, getKegiatan, getKegiatanAktif, createKegiatan,      // ISU 1
+  getKegiatanIdsForPml, pmlPunyaKegiatan, listKegiatanForUser,     // keanggotaan PML
+  daftarkanPml, keluarkanPml, listPmlDenganKegiatan,
   getByIdsScoped,
   SUMBER_VALID,
   normalizeNumber,
