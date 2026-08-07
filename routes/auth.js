@@ -18,9 +18,15 @@ const express = require('express');
 
 const db = require('../database');
 const passport = require('../config/passport');
+const rateLimit = require('../middleware/rate-limit'); // PENGAMAN 3
 
 const router = express.Router();
 const view = (file) => path.join(__dirname, '..', 'views', file);
+
+// PENGAMAN 3: batasi percobaan pada endpoint autentikasi (anti brute-force).
+// Login lebih ketat; reset/forgot/signup sedikit lebih longgar.
+const limitLogin = rateLimit({ windowMs: 60_000, max: 8, pesan: 'Terlalu banyak percobaan login. Coba lagi sebentar lagi.' });
+const limitAuth = rateLimit({ windowMs: 60_000, max: 12 });
 
 // Ubah error teknis menjadi pesan yang jelas & memberi solusi ke pengguna.
 function pesanError(err) {
@@ -42,7 +48,12 @@ router.get('/forgot', (req, res) => res.sendFile(view('forgot.html')));
 router.get('/reset/:token', (req, res) => res.sendFile(view('reset.html')));
 
 // --- REGISTRASI --------------------------------------------------------------
-router.post('/signup', (req, res) => {
+router.post('/signup', limitAuth, (req, res) => {
+  // PENGAMAN 2: swa-daftar dinonaktifkan secara default saat aplikasi diakses publik.
+  // Akun PML dibuat oleh Admin. Aktifkan kembali dengan ALLOW_SIGNUP=1 di .env bila perlu.
+  if (process.env.ALLOW_SIGNUP !== '1') {
+    return res.status(403).json({ error: 'Pendaftaran mandiri dinonaktifkan. Hubungi Admin untuk pembuatan akun.' });
+  }
   try {
     const { nama, email, password } = req.body;
     if (!email || !password) return res.status(400).json({ error: 'Email dan password wajib diisi.' });
@@ -60,7 +71,7 @@ router.post('/signup', (req, res) => {
 });
 
 // --- LOGIN (Passport Local) --------------------------------------------------
-router.post('/login', (req, res, next) => {
+router.post('/login', limitLogin, (req, res, next) => {
   passport.authenticate('local', (err, user, info) => {
     if (err) {
       console.error('[LOGIN] Error teknis:', err.message);
@@ -82,7 +93,7 @@ router.post('/login', (req, res, next) => {
 });
 
 // --- FORGOT PASSWORD (simulasi link reset) -----------------------------------
-router.post('/forgot', (req, res) => {
+router.post('/forgot', limitAuth, (req, res) => {
   const { email } = req.body;
   const user = email && db.findUserByEmail(email);
 
@@ -100,7 +111,7 @@ router.post('/forgot', (req, res) => {
 });
 
 // --- RESET PASSWORD ----------------------------------------------------------
-router.post('/reset/:token', (req, res) => {
+router.post('/reset/:token', limitAuth, (req, res) => {
   const { password } = req.body;
   if (!password || String(password).length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter.' });
   const user = db.findUserByResetToken(req.params.token);
