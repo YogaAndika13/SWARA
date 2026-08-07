@@ -78,12 +78,21 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- SESSION & PASSPORT ------------------------------------------------------
+// PENGAMAN 1: sesi disimpan di SQLite (bukan memori) -> tahan restart & banyak user.
+const createSqliteStore = require('./config/sqlite-session-store');
+app.set('trust proxy', 1); // di belakang tunnel/proxy (Cloudflare) -> cookie Secure benar
 app.use(
   session({
+    store: createSqliteStore(db.db),
     secret: process.env.SESSION_SECRET || 'rahasia-dev-harap-ganti-di-produksi',
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 1000 * 60 * 60 * 8 }, // sesi 8 jam
+    cookie: {
+      maxAge: 1000 * 60 * 60 * 8,                 // sesi 8 jam
+      httpOnly: true,                              // cookie tak bisa dibaca JavaScript (anti-XSS)
+      sameSite: 'lax',
+      secure: process.env.COOKIE_SECURE === '1',   // set '1' di .env saat diakses via HTTPS/tunnel
+    },
   })
 );
 app.use(passport.initialize());
@@ -176,6 +185,20 @@ app.post('/api/kegiatan', requireRole('Admin'), (req, res) => {
 // --- KELOLA KEANGGOTAAN PML (khusus Admin) ---
 // Daftar PML beserta kegiatan yang diikutinya
 app.get('/api/pml', requireRole('Admin'), (req, res) => res.json(db.listPmlDenganKegiatan()));
+
+// PENGAMAN 2: Admin membuat akun PML (karena swa-daftar dimatikan)
+app.post('/api/pml', requireRole('Admin'), (req, res) => {
+  try {
+    const bcrypt = require('bcryptjs');
+    const { nama, email, password } = req.body || {};
+    if (!email || !password) return res.status(400).json({ error: 'Email dan password wajib diisi.' });
+    if (String(password).length < 6) return res.status(400).json({ error: 'Password minimal 6 karakter.' });
+    if (db.findUserByEmail(email)) return res.status(409).json({ error: 'Email sudah terdaftar.' });
+    const id = db.createUser({ nama, email, password: bcrypt.hashSync(String(password), 10), role: 'PML' });
+    db.logAudit({ ...jejak(req), aksi: 'BUAT_AKUN_PML', detail: `${nama || ''} <${email}>`, jumlah: 1 });
+    res.status(201).json({ ok: true, id });
+  } catch (e) { res.status(400).json({ error: e.message }); }
+});
 // Daftarkan / keluarkan PML dari sebuah kegiatan
 app.post('/api/pml/:id/kegiatan', requireRole('Admin'), (req, res) => {
   const pmlId = Number(req.params.id);

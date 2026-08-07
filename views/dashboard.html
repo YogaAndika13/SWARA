@@ -209,11 +209,30 @@
           </div>
           <div>
             <h2 class="text-lg font-bold text-slate-900">Kelola Keanggotaan PML</h2>
-            <p class="text-sm text-slate-500">Centang kegiatan yang boleh diakses tiap PML. PML hanya bisa berpindah ke kegiatan yang dicentang.</p>
+            <p class="text-sm text-slate-500">Buat akun PML, lalu centang kegiatan yang boleh diaksesnya. PML hanya bisa berpindah ke kegiatan yang dicentang.</p>
           </div>
         </div>
 
-        <div class="max-h-96 overflow-y-auto thin-scroll -mx-2 px-2">
+        <!-- FORM BUAT AKUN PML (pengganti swa-daftar) -->
+        <div class="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mb-4">
+          <p class="text-xs font-semibold text-slate-600 mb-2">Buat Akun PML Baru</p>
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+            <input x-model="formPml.nama" placeholder="Nama"
+                   class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <input x-model="formPml.email" type="email" placeholder="Email"
+                   class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <input x-model="formPml.password" type="text" placeholder="Password (min. 6)"
+                   class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          </div>
+          <div class="flex items-center justify-between mt-2">
+            <p x-show="pmlGalat" class="text-xs font-medium text-red-600" x-text="pmlGalat"></p>
+            <span x-show="!pmlGalat" class="text-xs text-slate-400">Password ditampilkan agar mudah Anda catat &amp; sampaikan ke PML.</span>
+            <button @click="buatPml()"
+                    class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 transition shrink-0">Buat Akun</button>
+          </div>
+        </div>
+
+        <div class="max-h-80 overflow-y-auto thin-scroll -mx-2 px-2">
           <template x-for="p in pmlList" :key="p.id">
             <div class="rounded-lg border border-slate-200 p-3 mb-2">
               <div class="flex items-center justify-between mb-2">
@@ -237,7 +256,7 @@
             </div>
           </template>
           <p x-show="pmlList.length === 0" class="text-sm text-slate-400 text-center py-8">
-            Belum ada akun PML. PML dapat mendaftar melalui halaman Sign Up.
+            Belum ada akun PML. Buat akun pertama melalui formulir di atas.
           </p>
         </div>
 
@@ -667,6 +686,8 @@
         showKegiatan: false,    // modal kelola survei
         showPml: false,         // modal kelola keanggotaan PML
         pmlList: [],            // daftar PML + kegiatannya (khusus Admin)
+        formPml: { nama: '', email: '', password: '' }, // form buat akun PML
+        pmlGalat: '',
         formKegiatan: { kode: '', nama: '' },
         kegiatanGalat: '',
         // --- MITIGASI ISU 1: pakta, masking, audit ---
@@ -955,6 +976,26 @@
             this.kegiatanList = await fetch('/api/kegiatan').then((r) => r.json());
             this.showPml = true;
           } catch (e) { this.toast('Gagal memuat data PML: ' + e.message, 'gagal'); }
+        },
+
+        async buatPml() {
+          this.pmlGalat = '';
+          const nama = (this.formPml.nama || '').trim();
+          const email = (this.formPml.email || '').trim();
+          const password = this.formPml.password || '';
+          if (!email || !password) { this.pmlGalat = 'Email dan password wajib diisi.'; return; }
+          if (password.length < 6) { this.pmlGalat = 'Password minimal 6 karakter.'; return; }
+          try {
+            const res = await fetch('/api/pml', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ nama, email, password }),
+            });
+            const j = await res.json();
+            if (!res.ok) { this.pmlGalat = j.error || 'Gagal membuat akun.'; return; }
+            this.formPml = { nama: '', email: '', password: '' };
+            this.pmlList = await fetch('/api/pml').then((r) => r.json()); // muat ulang daftar
+            this.toast('Akun PML dibuat: ' + email, 'sukses', 'Jangan lupa daftarkan ke kegiatan (klik lencana).');
+          } catch (e) { this.pmlGalat = 'Gagal: ' + e.message; }
         },
 
         async togglePmlKegiatan(p, idKeg) {
