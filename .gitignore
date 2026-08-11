@@ -3,6 +3,10 @@ node_modules/
 .wwebjs_cache/
 data/*.sqlite
 data/*.sqlite-*
+# Cadangan basis data: memuat data responden asli, JANGAN pernah masuk repo
+data/backup/
+# Log runtime dari start-swara.bat
+data/*.log
 uploads/*
 !uploads/.gitkeep
 
