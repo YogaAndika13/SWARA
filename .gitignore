@@ -7,5 +7,7 @@ uploads/*
 !uploads/.gitkeep
 
 # Kredensial rahasia
+# CATATAN: hanya .env yang dirahasiakan. .env.example WAJIB ikut ter-commit —
+# isinya hanya nilai contoh, dan tanpa berkas itu pemasangan di komputer baru
+# tidak punya acuan (server menolak start bila SESSION_SECRET belum diisi).
 .env
-.env.example
