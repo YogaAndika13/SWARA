@@ -1,151 +1,243 @@
-# Sistem Instant Feedback Loop — Audit SE2026 BPS Karangasem
+# SWARA — Sistem WhatsApp Responsif & Akurat
 
-Auto WhatsApp Blast & Response Listener untuk verifikasi kunjungan petugas Sensus Ekonomi 2026.
-**Zero budget** — tanpa API berbayar, berjalan penuh di PC kantor.
+Alat penjaminan kualitas data lapangan untuk **BPS Kabupaten Karangasem**.
+SWARA mengirim pesan verifikasi via WhatsApp kepada responden, menanyakan apakah
+petugas benar-benar berkunjung, lalu memperbarui dashboard begitu balasan masuk —
+*instant feedback loop*.
+
+**Zero budget:** tanpa API berbayar, tanpa server sewaan, tanpa kompilasi.
+Berjalan penuh di satu PC kantor.
+
+> Sistem ini **survey-agnostic**. Awalnya dibuat untuk Sensus Ekonomi 2026, kini
+> melayani banyak kegiatan pendataan lewat tabel `kegiatan` (SE2026, Susenas, dsb).
 
 ---
 
 ## Tech Stack
-- **Backend:** Node.js + Express.js
-- **WA Gateway (gratis):** `whatsapp-web.js` (login via QR di terminal)
-- **Database:** **SQLite bawaan Node.js** (`node:sqlite`) — tanpa install & tanpa kompilasi
-- **Frontend:** HTML + Tailwind CSS (CDN) + Alpine.js + Chart.js
+- **Backend:** Node.js + Express
+- **Gateway WA (gratis):** `whatsapp-web.js` — login sekali via QR
+- **Basis data:** SQLite **bawaan Node.js** (`node:sqlite`) — tanpa instalasi, tanpa kompilasi
+- **Realtime:** Socket.io
+- **Autentikasi:** Passport (Local + Google OAuth opsional), `bcryptjs`
+- **Frontend:** HTML + Tailwind CSS (CDN) + Alpine.js + Chart.js — tanpa build step
 
-> Catatan: proyek ini **tidak lagi memakai `better-sqlite3`**. Kita pakai SQLite yang
-> sudah menyatu di Node.js sehingga tidak butuh Python / Visual Studio Build Tools.
+> Tidak memakai `better-sqlite3` maupun `bcrypt` versi native, sehingga **tidak
+> memerlukan Python atau Visual Studio Build Tools**.
 
 ---
 
 ## Struktur Folder
 ```
 bps-audit-se2026/
-├── app.js                # Server Express + semua endpoint API
-├── database.js           # SQLite (node:sqlite) + schema + query helper
-├── wa-client.js          # Gateway WhatsApp (QR, listener balasan, blast)
+├── app.js                  # Server Express + seluruh endpoint API
+├── database.js             # SQLite (node:sqlite): skema, migrasi, query ter-scope
+├── wa-client.js            # Gateway WhatsApp (QR, listener balasan, blast, auto-teguran)
+├── scheduler.js            # Cron: laporan harian + cadangan basis data
+├── start-swara.bat         # Jalankan & nyalakan ulang otomatis (Windows)
 ├── package.json
-├── sample_responden.csv  # Contoh data untuk uji upload
+├── .env.example            # Contoh konfigurasi -> salin jadi .env
+├── sample_responden.csv    # Contoh data untuk uji impor
+├── config/
+│   ├── passport.js         # Strategi Local & Google
+│   └── sqlite-session-store.js  # Sesi login disimpan di SQLite (tahan restart)
+├── middleware/
+│   ├── auth.js             # ensureApi, ensurePage, requireRole, attachScope
+│   └── rate-limit.js       # Pembatas percobaan login (tanpa dependensi luar)
+├── routes/
+│   └── auth.js             # /login, /signup, /forgot, /reset, /auth/google, /logout
 ├── views/
-│   └── dashboard.html    # UI dashboard (Tailwind + Alpine + Chart.js)
-├── public/               # Aset statis (opsional)
-├── uploads/              # File CSV sementara (otomatis dibersihkan)
-└── data/                 # File database SQLite dibuat otomatis di sini
+│   ├── dashboard.html      # Dashboard utama (Alpine + Tailwind + Chart.js)
+│   ├── login.html          # Halaman masuk
+│   ├── signup.html         # Registrasi mandiri (nonaktif secara baku)
+│   ├── forgot.html         # Permintaan tautan reset
+│   └── reset.html          # Penetapan password baru
+├── public/                 # Aset statis (opsional)
+├── uploads/                # CSV sementara (dibersihkan otomatis)
+└── data/
+    ├── audit.sqlite        # Basis data (dibuat otomatis)
+    ├── backup/             # Cadangan harian audit-YYYY-MM-DD.sqlite
+    └── swara.log           # Log runtime bila dijalankan via start-swara.bat
 ```
-
----
-
-## Modul Autentikasi & Automation (Baru)
-Sistem kini bernama **SE-2026 Quality Assurance System** dengan tambahan:
-- **Login/Signup/Forgot Password** (Passport Local + bcryptjs) dan **Login with Google** (OAuth 2.0).
-- Semua halaman & API dashboard **dilindungi** (wajib login).
-- **Auto-Teguran**: begitu responden membalas `2` (Fraud), sistem otomatis mengirim WA ke nomor petugas (`NO_HP_PETUGAS`) agar mengunjungi ulang lokasi dalam 24 jam.
-- **Daily Push (17:00)**: `node-cron` mengirim ringkasan harian ke nomor PML (`SUPERVISOR_PHONE`).
-- Tab **Jalur Hijau** (Valid) & **Indikasi Fraud**, plus tombol **One-Click Copy** teks penolakan.
-
-> Catatan `bcrypt`: proyek memakai **`bcryptjs`** (pure-JS, tanpa kompilasi) sebagai pengganti drop-in `bcrypt`, agar tidak memerlukan Python/Build Tools di PC kantor. API-nya sama (`hashSync`/`compareSync`).
-
-### Konfigurasi `.env` (wajib)
-Salin `.env.example` menjadi `.env`, lalu isi minimal `SESSION_SECRET`. Untuk Google & Daily Push, isi juga `GOOGLE_CLIENT_ID/SECRET` dan `SUPERVISOR_PHONE`.
-```powershell
-Copy-Item .env.example .env
-```
-
----
-
-## Mitigasi Tata Kelola Data (Isu Penguji 1 & 2)
-
-### Isu 1 — Kerahasiaan data (mis. tarikan dari SQL Lab)
-Sistem tidak sekadar "berjanji" menjaga rahasia, tetapi **memaksakan** perlakuan rahasia lewat fitur:
-
-| Fitur | Cara kerja |
-|---|---|
-| **Pakta Integritas digital** | Modal pemblokir saat login. Data tidak dapat diakses sebelum pengguna menyetujui pernyataan kerahasiaan (rujukan UU 16/1997 & UU 27/2022). Persetujuan + versi naskah tersimpan di tabel `users`. |
-| **Minimalisasi data** | Hanya 4 atribut yang diproses: nama usaha, no HP responden, nama petugas, no HP petugas. Tidak ada omzet/NPWP/isi kuesioner. |
-| **Masking nomor** | Nomor tampil `0813****794`. Nomor mentah (`wa_id`) **tidak pernah** dikirim ke browser. |
-| **Buka nomor terkontrol** | Ikon mata membuka nomor penuh satu baris; setiap pembukaan dicatat di jejak audit. |
-| **Jejak audit (audit trail)** | Tabel `audit_log` mencatat LOGIN, SETUJU_PAKTA, IMPOR/TAMBAH DATA, BUKA_NOMOR, BLAST, EKSPOR, VALIDASI_MANUAL, MUSNAHKAN_NOMOR — lengkap dengan pengguna, waktu, IP, jumlah baris. Tampil di panel "Jejak Audit Akses Data". |
-| **Ekspor berwatermark** | Baris pertama CSV memuat identitas pengunduh, waktu, mode, dan peringatan hukum. Default ekspor **tersamar**; nomor penuh hanya via `?penuh=1` dan tercatat terpisah di audit. |
-| **Retensi & pemusnahan** | Tombol "Retensi" menghapus permanen nomor HP untuk data yang sudah selesai diverifikasi melebihi N hari. Status & statistik tetap utuh untuk laporan. |
-
-### Isu 2 — Tidak semua survei dapat ditarik dari SQL Lab
-Arsitektur dibuat **source-agnostic** — SQL Lab hanyalah salah satu sumber, bukan syarat:
-
-| Fitur | Cara kerja |
-|---|---|
-| **Kolom `SUMBER_DATA`** | Setiap baris menyimpan asal-usulnya: `SQL_LAB`, `CAPI`, `MANUAL_PML`, atau `LAINNYA`. Tersedia di CSV, form manual, kolom tabel, dan hasil ekspor. |
-| **Empat jalur masuk data** | (a) ekspor SQL Lab, (b) CSV dari aplikasi CAPI, (c) rekap manual PML, (d) input satuan lewat form. Semua bermuara ke template baku yang sama. |
-| **Filter & rekap provenance** | Dropdown "Semua Sumber" pada tabel, plus rekap jumlah per sumber di panel audit — memudahkan pelaporan asal data. |
-| **Verifikasi berbasis sampel acak** | Tombol "Sampel Acak" memilih N responden secara acak dari data berstatus Menunggu, lalu mencentangnya untuk "Blast Terpilih". Berguna saat kerangka data tidak lengkap; efek jera tetap bekerja karena petugas tidak tahu kunjungan mana yang diverifikasi. |
-
-> Catatan: mitigasi untuk isu ketiga (kanal WhatsApp pihak ketiga) **ditunda**; purwarupa saat ini difokuskan pada pembuktian konsep manfaat sistem.
 
 ---
 
 ## Prasyarat
-- **Node.js versi 22.13 atau lebih baru** (Node 24 sangat disarankan). Cek: `node -v`.
-  SQLite bawaan (`node:sqlite`) aktif otomatis mulai Node 22.13, tanpa flag apa pun.
-- Koneksi internet **saat `npm install`** (untuk mengunduh Chromium milik puppeteer).
-- Sebuah **nomor WhatsApp** untuk dijadikan gateway (disarankan nomor khusus dinas).
-
-Tidak perlu Python, tidak perlu Visual Studio Build Tools.
+- **Node.js 22.13 atau lebih baru** (Node 24 disarankan). Cek dengan `node -v`.
+  `node:sqlite` tersedia otomatis sejak Node 22.13, tanpa flag.
+- **Google Chrome atau Microsoft Edge** sudah terpasang (Edge hampir selalu ada di
+  Windows 10/11). Chromium milik Puppeteer sengaja **tidak** diunduh.
+- Koneksi internet **hanya saat `npm install`**, untuk mengunduh paket npm.
+- Satu **nomor WhatsApp** sebagai gateway — sangat disarankan nomor khusus dinas,
+  bukan nomor pribadi.
 
 ---
 
-## Cara Instalasi & Menjalankan
+## Instalasi
 
-**1. Masuk ke folder proyek**
 ```bash
 cd bps-audit-se2026
-```
-
-**2. Install dependency**
-```bash
 npm install
 ```
 
-**3. Jalankan aplikasi**
-```bash
-npm start
+**Siapkan konfigurasi** (wajib — server menolak jalan tanpa ini):
+
+```powershell
+Copy-Item .env.example .env
 ```
 
-**4. Scan QR Code**
-Di terminal muncul QR Code. Buka WhatsApp di HP →
-**Setelan → Perangkat Tertaut → Tautkan Perangkat** → scan QR.
-Setelah muncul `[WA] ✅ Gateway SIAP`, gateway aktif. (Sesi tersimpan, tak perlu scan ulang.)
+Buat kunci sesi acak, lalu tempelkan ke `SESSION_SECRET` di `.env`:
 
-**5. Buka Dashboard**
-Kunjungi **http://localhost:3000**.
+```powershell
+node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
 
-> Saat start akan muncul baris `ExperimentalWarning: SQLite is an experimental feature`.
-> Ini **normal dan aman diabaikan** — hanya penanda bahwa SQLite bawaan Node masih berstatus eksperimental.
+> `SESSION_SECRET` menandatangani cookie login. Bila kosong, memakai nilai contoh,
+> atau kurang dari 16 karakter, **server sengaja menolak start** — kunci lemah
+> memungkinkan orang memalsukan sesi Admin tanpa password.
+
+**Jalankan:**
+
+```bash
+npm start        # atau: npm run dev  (auto-reload saat berkas berubah)
+```
+
+Agar SWARA hidup sendiri setiap komputer menyala dan menyala ulang bila berhenti,
+gunakan `start-swara.bat` (petunjuk pendaftaran ke Task Scheduler ada di dalam berkasnya).
+
+**Tautkan WhatsApp:** QR muncul di terminal *dan* di dashboard. Buka WhatsApp di HP →
+**Setelan → Perangkat Tertaut → Tautkan Perangkat** → pindai. Setelah `[WA] ✅ Gateway SIAP`,
+status di dashboard berubah hijau. Sesi tersimpan di `.wwebjs_auth/`, jadi pemindaian
+hanya sekali.
+
+**Buka dashboard:** <http://localhost:3000>
+
+> Baris `ExperimentalWarning: SQLite is an experimental feature` saat start adalah
+> **normal** — hanya penanda bahwa SQLite bawaan Node masih berstatus eksperimental.
+
+### Akun pertama
+Saat pertama kali dijalankan, sistem membuat akun Admin:
+
+| Email | Password |
+|---|---|
+| `admin@bps.go.id` | `bps12345` |
+
+Password ini **wajib diganti saat login pertama** — dashboard diblokir sampai
+password baru ditetapkan (minimal 8 karakter). Akun PML berikutnya dibuat Admin
+lewat menu **Kelola PML**; pendaftaran mandiri nonaktif secara baku
+(aktifkan dengan `ALLOW_SIGNUP=1` bila memang diperlukan).
 
 ---
 
-## Jika Sebelumnya Sudah Gagal `npm install`
-Kalau tadi install pernah error (mis. soal `better-sqlite3`/Python atau `EPERM`), bersihkan dulu:
+## Konfigurasi `.env`
 
-1. Tutup semua yang memakai folder ini (VS Code, terminal lain, antivirus scan, sinkronisasi OneDrive).
-2. Hapus folder `node_modules` dan file `package-lock.json` di dalam proyek.
-   - Lewat PowerShell:
-     ```powershell
-     Remove-Item -Recurse -Force node_modules, package-lock.json
-     ```
-   - Jika `EPERM`/akses ditolak: pindahkan folder proyek keluar dari **Downloads/OneDrive**
-     (mis. ke `C:\bps-audit-se2026`), lalu ulangi.
-3. Install ulang: `npm install`
-4. Jalankan: `npm start`
+| Variabel | Guna |
+|---|---|
+| `PORT` | Port server (baku `3000`). |
+| `SESSION_SECRET` | **Wajib.** Kunci acak penanda tangan cookie sesi. |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Opsional — mengaktifkan "Masuk dengan Google". |
+| `ALLOW_SIGNUP` | `1` untuk mengizinkan pendaftaran mandiri. Baku: nonaktif. |
+| `SUPERVISOR_PHONE` | Nomor penerima laporan harian. |
+| `DAILY_PUSH_CRON` | Jadwal laporan harian (baku `0 17 * * *` = 17:00). |
+| `CRON_TIMEZONE` | Zona waktu cron (baku `Asia/Makassar`). |
+| `BACKUP_CRON` | Jadwal cadangan basis data (baku `0 2 * * *` = 02:00). |
+| `BACKUP_KEEP` | Berapa hari cadangan disimpan (baku `14`). |
+| `CHROME_PATH` | Lokasi Chrome/Edge bila deteksi otomatis gagal. |
+
+---
+
+## Peran & Isolasi Data
+
+Ada dua peran, ditegakkan **di server**, bukan sekadar disembunyikan di tampilan:
+
+| | **Admin** | **PML** |
+|---|---|---|
+| Data yang terlihat | Seluruh data pada kegiatan yang dipilih | Hanya barisnya sendiri |
+| Kelola survei/kegiatan | ✅ | — |
+| Kelola akun PML & keanggotaan | ✅ | — |
+| Jejak audit | ✅ | — |
+| Retensi / pemusnahan nomor | ✅ | — |
+| Impor, blast, sampel, ekspor | ✅ | ✅ (terbatas datanya sendiri) |
+
+Setiap query yang menyentuh tabel `responden` melewati penyaring
+`kegiatan` + `pml_id`. Saat menambah endpoint baru, **wajib** memakai fungsi
+`*Scoped` di `database.js` — jangan pernah memakai pasangan tanpa scope
+(`getAll`, `resetAll`, `purgeNomorLama`, dst.) dari sebuah route.
+
+---
+
+## Tata Kelola Kerahasiaan Data
+
+| Fitur | Cara kerja |
+|---|---|
+| **Pakta Integritas digital** | Modal pemblokir saat login. Data tak dapat diakses sebelum pernyataan kerahasiaan disetujui (rujukan UU 16/1997 & UU 27/2022). Persetujuan + versi naskah tersimpan di tabel `users`. |
+| **Minimalisasi data** | Hanya 4 atribut diproses: nama usaha, no HP responden, nama petugas, no HP petugas. Tidak ada omzet/NPWP/isi kuesioner. |
+| **Masking nomor** | Nomor tampil `0813****794`. Nomor mentah (`wa_id`) **tidak pernah** dikirim ke browser. |
+| **Buka nomor terkontrol** | Ikon mata membuka satu nomor penuh; setiap pembukaan tercatat di jejak audit. |
+| **Jejak audit** | Tabel `audit_log` mencatat LOGIN, SETUJU_PAKTA, GANTI_PASSWORD, IMPOR/TAMBAH DATA, BUKA_NOMOR, BLAST, PILIH_SAMPEL, EKSPOR, VALIDASI_MANUAL, RESET_STATUS, MUSNAHKAN_NOMOR — lengkap dengan pengguna, waktu, IP, jumlah baris. |
+| **Ekspor berwatermark** | Baris pertama CSV memuat identitas pengunduh, waktu, mode, dan peringatan hukum. Baku **tersamar**; nomor penuh hanya via `?penuh=1` dan tercatat terpisah. Isi ekspor mengikuti hak akses pengunduh. |
+| **Anti CSV injection** | Sel yang diawali `=` `+` `-` `@` diberi kutip tunggal agar tidak dieksekusi sebagai rumus saat dibuka di Excel/Sheets. |
+| **Retensi & pemusnahan** | Tombol "Retensi" (Admin) menghapus permanen nomor HP untuk data yang selesai melebihi N hari. Status & statistik tetap utuh untuk laporan. |
+
+---
+
+## Sumber Data Beragam
+
+Arsitektur **source-agnostic** — SQL Lab hanya salah satu sumber, bukan syarat.
+
+| Fitur | Cara kerja |
+|---|---|
+| **Kolom `SUMBER_DATA`** | Setiap baris menyimpan asal-usulnya: `SQL_LAB`, `CAPI`, `MANUAL_PML`, `LAINNYA`. |
+| **Empat jalur masuk** | (a) ekspor SQL Lab, (b) CSV dari CAPI, (c) rekap manual PML, (d) input satuan. Semua bermuara ke template baku yang sama. |
+| **Filter & rekap provenance** | Dropdown "Semua Sumber" pada tabel, plus rekap jumlah per sumber. |
+| **Verifikasi berbasis sampel** | "Sampel Acak" memilih N responden acak berstatus *Menunggu*. Berguna saat kerangka data tak lengkap; efek jera tetap bekerja karena petugas tidak tahu kunjungan mana yang diverifikasi. |
+
+---
+
+## Format CSV Impor
+
+Unduh contoh lewat tombol **Template** di dashboard, atau lihat `sample_responden.csv`.
+
+| Kolom | Wajib | Keterangan |
+|---|---|---|
+| `nama_usaha` | ✅ | Nama usaha/responden. |
+| `no_hp` | ✅ | Nomor responden (`08...` atau `62...`). |
+| `nama_petugas` | ✅ | Nama pencacah yang berkunjung. |
+| `no_hp_petugas` | — | Dipakai fitur **Auto-Teguran** saat responden membalas `2`. |
+| `sumber_data` | — | `SQL_LAB` / `CAPI` / `MANUAL_PML` / `LAINNYA`. Baku `MANUAL_PML`. |
+
+---
+
+## Alur Status Responden
+
+```
+PENDING ──blast──> TERKIRIM ──balas "1"──> VALID
+                       │
+                       ├────balas "2"──> FRAUD ──validasi manual──> VALID_MANUAL
+                       │                    └── auto-teguran ke petugas
+                       └──gagal kirim──> GAGAL
+```
+
+---
+
+## Cadangan & Pemulihan
+- Cadangan otomatis setiap hari (baku 02:00) ke `data/backup/audit-YYYY-MM-DD.sqlite`,
+  disimpan 14 hari terakhir.
+- **Pulihkan:** hentikan server, salin berkas cadangan menjadi `data/audit.sqlite`
+  (hapus dulu `audit.sqlite-wal` dan `audit.sqlite-shm` bila ada), lalu jalankan lagi.
+- Salin folder `data/backup/` ke media lain secara berkala — cadangan di disk yang
+  sama tidak menolong bila disknya yang rusak.
+- Folder `.wwebjs_auth/` menyimpan sesi WhatsApp. Menghapusnya = pindai QR ulang.
 
 ---
 
 ## Soal Browser (Chromium untuk WhatsApp Web)
-`whatsapp-web.js` menjalankan WhatsApp Web di balik layar memakai browser Chromium.
+`whatsapp-web.js` menjalankan WhatsApp Web di balik layar memakai Chromium.
 Aplikasi ini **otomatis mendeteksi Google Chrome atau Microsoft Edge** yang sudah
-terpasang di PC (Edge hampir selalu ada di Windows 10/11), jadi normalnya Anda
-**tidak perlu mengunduh apa pun**.
+terpasang, jadi normalnya Anda **tidak perlu mengunduh apa pun**.
 
-Jika muncul error `Could not find Chrome ...`, pilih salah satu:
-- **(A) Termudah — pakai browser yang ada:** pastikan Google Chrome atau Microsoft Edge
-  terpasang, lalu jalankan ulang `npm start`. Aplikasi akan memakainya otomatis.
-  Untuk menunjuk lokasi browser secara manual (PowerShell):
+Bila muncul `Could not find Chrome ...`:
+- **(A) Termudah:** pastikan Chrome/Edge terpasang lalu `npm start` lagi. Untuk
+  menunjuk lokasinya secara manual (PowerShell):
   ```powershell
   $env:CHROME_PATH="C:\Program Files (x86)\Microsoft\Edge\Application\msedge.exe"; npm start
   ```
@@ -153,38 +245,34 @@ Jika muncul error `Could not find Chrome ...`, pilih salah satu:
   ```powershell
   npx puppeteer browsers install chrome
   ```
-  lalu `npm start` lagi.
 
 ---
 
-## Cara Pakai
-1. **Impor data** — klik **Upload CSV** (pakai `sample_responden.csv`), atau **Tambah Manual**.
-   Kolom CSV wajib: `nama_usaha`, `no_hp`, `nama_petugas`.
-2. **Kirim Blast WA** — klik tombol oranye. Pesan verifikasi dikirim ke semua responden
-   berstatus *Menunggu*, dengan jeda 6–15 detik antar pesan.
-3. **Pantau otomatis** — saat responden membalas **1** (Valid) atau **2** (Fraud),
-   status di tabel & kartu statistik terupdate sendiri setiap 5 detik.
-
----
-
-## Catatan Penting (Wajib Dibaca)
-- **Risiko pemblokiran:** `whatsapp-web.js` tidak resmi. Blast massal ke banyak nomor asing
-  bisa memicu pembatasan/blokir WhatsApp. Gunakan **nomor khusus**, mulai dari skala kecil,
-  dan pertahankan jeda antar pesan (sudah diatur 6–15 detik).
+## Catatan Penting
+- **Risiko pemblokiran:** `whatsapp-web.js` tidak resmi. Blast massal ke banyak nomor
+  asing dapat memicu pembatasan/blokir. Gunakan nomor khusus, mulai dari skala kecil,
+  dan **jangan menghapus atau memperpendek jeda 6–15 detik antar pesan** — jeda itu
+  memang penghalang anti-spam.
 - **Kerahasiaan data:** nomor & identitas responden tunduk pada kerahasiaan data BPS.
-  Pastikan pemanfaatannya sesuai ketentuan instansi.
-- **Backup sesi:** folder `.wwebjs_auth/` menyimpan sesi login. Menghapusnya = scan QR ulang.
-- **Backup data:** seluruh data di `data/audit.sqlite`. Salin file itu untuk backup.
+- **Berkas ekspor** memuat penanda identitas pengunduh dan menjadi tanggung jawabnya.
 
 ---
 
-## Troubleshooting Singkat
+## Troubleshooting
 | Masalah | Solusi |
 |---|---|
-| `find Python ... NOT SUPPORTED` saat install | Sudah tidak relevan — proyek ini tak lagi butuh kompilasi. Pastikan pakai `package.json` versi terbaru (tanpa better-sqlite3), lalu bersihkan `node_modules` & install ulang. |
-| `No such built-in module: node:sqlite` | Node Anda terlalu lama. Update ke Node 22.13+ / 24 dari nodejs.org. |
-| `Could not find Chrome ...` | Pastikan Chrome/Edge terpasang lalu `npm start` lagi (auto-terdeteksi). Atau set `CHROME_PATH`, atau jalankan `npx puppeteer browsers install chrome`. Lihat bagian "Soal Browser". |
+| Login berhasil tapi kembali ke halaman login | Cookie sesi tidak tersimpan. Pastikan tidak memaksa `cookie.secure` bernilai `true` saat diakses lewat HTTP biasa — nilai `'auto'` menangani HTTP lokal maupun HTTPS tunnel. |
+| `[FATAL] SESSION_SECRET belum diisi` | Salin `.env.example` ke `.env` lalu isi `SESSION_SECRET` dengan string acak ≥16 karakter. |
+| `No such built-in module: node:sqlite` | Node terlalu lama. Perbarui ke Node 22.13+ / 24 dari nodejs.org. |
+| `Could not find Chrome ...` | Pastikan Chrome/Edge terpasang, atau set `CHROME_PATH`. Lihat bagian "Soal Browser". |
 | `EPERM: operation not permitted` | Tutup editor/antivirus/OneDrive yang mengunci folder; pindahkan proyek ke `C:\` lalu ulangi. |
-| QR tidak muncul | Lebarkan jendela terminal; jalankan ulang `npm start`. |
-| "Gateway WA belum siap" | Tunggu status navbar hijau (`WA Gateway Aktif`). |
-| Port 3000 dipakai | `PORT=4000 npm start` (PowerShell: `$env:PORT=4000; npm start`). |
+| QR tidak muncul | Lebarkan jendela terminal, atau lihat QR di dashboard. Jalankan ulang bila perlu. |
+| "Gateway WA belum siap" | Tunggu status di topbar berubah hijau (`WA Gateway Aktif`). |
+| Port 3000 dipakai | PowerShell: `$env:PORT=4000; npm start`. |
+| PML tidak melihat data apa pun | Pastikan PML sudah didaftarkan ke kegiatan yang benar lewat **Kelola PML**. |
+| Lupa password | Tidak ada pengiriman surel. Tautan reset hanya muncul di konsol server — hubungi Admin. |
+
+---
+
+## Untuk Pengguna Harian
+Panduan langkah demi langkah bagi PML ada di **[PANDUAN-PML.md](PANDUAN-PML.md)**.

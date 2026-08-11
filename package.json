@@ -1,7 +1,7 @@
 {
-  "name": "bps-audit-se2026",
+  "name": "swara",
   "version": "1.0.0",
-  "description": "Sistem Instant Feedback Loop - Auto WA Blast & Response Listener untuk audit SE2026 BPS Karangasem (Zero Budget)",
+  "description": "SWARA (Sistem WhatsApp Responsif & Akurat) - verifikasi kunjungan petugas lapangan via WhatsApp untuk penjaminan kualitas data, BPS Kabupaten Karangasem (Zero Budget)",
   "main": "app.js",
   "type": "commonjs",
   "engines": {

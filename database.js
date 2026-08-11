@@ -7,8 +7,9 @@
  * library eksternal. Tujuannya agar TIDAK perlu kompilasi (node-gyp/Python/
  * Visual Studio Build Tools) -> cocok untuk PC kantor tanpa tools tambahan.
  *
- * Syarat: Node.js versi 22.5+ (idealnya Node 24, di mana `node:sqlite` sudah
- * aktif tanpa flag tambahan). Cek versi Anda: `node -v`.
+ * Syarat: Node.js versi 22.13+ (idealnya Node 24), di mana `node:sqlite` aktif
+ * tanpa flag tambahan. Angka ini harus sama dengan "engines" di package.json.
+ * Cek versi Anda: `node -v`.
  *
  * API `node:sqlite` mirip better-sqlite3: prepare().run()/.get()/.all().
  * Di sini semua parameter memakai placeholder posisi ( ? ) agar sederhana.
