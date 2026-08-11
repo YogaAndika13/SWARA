@@ -29,13 +29,17 @@
 
   <style>
     body { font-family: 'Inter', sans-serif; }
-    .thin-scroll::-webkit-scrollbar { height: 8px; }
+    /* Rail navigasi kiri: biru tua institusional (bukan hitam netral) */
+    .bg-rail      { background-color: #0f1c33; }
+    .bg-rail-soft { background-color: #18294a; }
+    .thin-scroll::-webkit-scrollbar { height: 8px; width: 8px; }
     .thin-scroll::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 9999px; }
     [x-cloak] { display: none !important; }
+    html { scroll-behavior: smooth; }
   </style>
 </head>
 
-<body class="bg-gray-50 text-slate-800 antialiased" x-data="auditApp()" x-init="init()" x-cloak>
+<body class="bg-slate-100 text-slate-800 antialiased" x-data="auditApp()" x-init="init()" x-cloak>
 
   <!-- ================== SISTEM NOTIFIKASI (pengganti alert/confirm/prompt) ================== -->
 
@@ -54,7 +58,7 @@
           <p class="text-sm font-semibold text-slate-900" x-text="t.judul"></p>
           <p x-show="t.pesan" class="text-sm text-slate-500 mt-0.5" x-text="t.pesan"></p>
         </div>
-        <button @click="tutupToast(t.id)" class="shrink-0 text-slate-400 hover:text-slate-600 transition" aria-label="Tutup">
+        <button @click="tutupToast(t.id)" class="shrink-0 text-slate-400 hover:text-slate-600 transition" aria-label="Tutup notifikasi">
           <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
         </button>
       </div>
@@ -115,562 +119,782 @@
   </div>
 
 
-  <!-- ============================ NAVBAR ============================ -->
-  <header class="bg-blue-700 text-white shadow-lg sticky top-0 z-30">
-    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-4 flex items-center justify-between gap-4">
-      <div class="flex items-center gap-3">
-        <div class="h-11 w-11 rounded-xl bg-white/15 ring-1 ring-white/25 flex items-center justify-center font-extrabold tracking-tight">BPS</div>
-        <div class="leading-tight">
-          <h1 class="text-base sm:text-lg font-bold">SWARA</h1>
-          <p class="text-blue-200 text-xs sm:text-sm">
-            BPS Kabupaten Karangasem
-            <span x-show="kegiatanAktif" class="text-blue-100">· <span x-text="kegiatanAktif?.nama"></span></span>
-          </p>
+  <!-- ============ MITIGASI ISU 1: PAKTA INTEGRITAS KERAHASIAAN DATA ============ -->
+  <!-- Modal pemblokir: data tidak dapat diakses sebelum pernyataan disetujui. -->
+  <div x-show="!paktaOK" x-cloak class="fixed inset-0 z-[55] flex items-center justify-center bg-slate-900/70 px-4">
+    <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 sm:p-8">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="h-11 w-11 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+          <svg class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+        </div>
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Pakta Integritas Kerahasiaan Data</h2>
+          <p class="text-sm text-slate-500">Wajib disetujui sebelum mengakses data responden.</p>
         </div>
       </div>
-      <div class="flex items-center gap-3">
+
+      <div class="bg-slate-50 rounded-lg p-4 text-sm text-slate-700 leading-relaxed max-h-64 overflow-y-auto thin-scroll space-y-2">
+        <p>Dengan ini saya menyatakan bahwa dalam mengakses dan mengolah data pada Sistem SWARA (BPS Kabupaten Karangasem):</p>
+        <ol class="list-decimal ml-5 space-y-1.5">
+          <li>Saya terikat kewajiban menjaga <span class="font-semibold">kerahasiaan data responden</span> sesuai <span class="font-semibold">UU No. 16 Tahun 1997 tentang Statistik</span> dan <span class="font-semibold">UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi</span>.</li>
+          <li>Data hanya digunakan untuk keperluan <span class="font-semibold">penjaminan kualitas dan pengawasan pencacahan</span>, tidak untuk kepentingan lain.</li>
+          <li>Saya <span class="font-semibold">tidak akan menyebarluaskan</span> data individual (nama usaha, nomor telepon) kepada pihak yang tidak berwenang.</li>
+          <li>Saya memahami bahwa <span class="font-semibold">seluruh aktivitas saya dicatat</span> dalam jejak audit sistem dan dapat diperiksa sewaktu-waktu.</li>
+          <li>Berkas hasil ekspor bersifat rahasia, memuat penanda identitas pengunduh, dan menjadi tanggung jawab saya.</li>
+          <li>Pelanggaran atas pernyataan ini dapat dikenakan sanksi sesuai ketentuan kepegawaian dan peraturan perundang-undangan.</li>
+        </ol>
+      </div>
+
+      <label class="flex items-start gap-3 mt-4 cursor-pointer">
+        <input type="checkbox" x-model="paktaCentang" class="mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-500" />
+        <span class="text-sm text-slate-700">Saya telah membaca, memahami, dan menyetujui pernyataan kerahasiaan data di atas.</span>
+      </label>
+
+      <div class="flex items-center justify-between mt-5 gap-3">
+        <span class="text-xs text-slate-400">Versi dokumen: <span x-text="paktaVersi"></span></span>
+        <div class="flex gap-2">
+          <button @click="logout()" class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Keluar</button>
+          <button @click="setujuiPakta()" :disabled="!paktaCentang"
+                  class="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
+            Setuju &amp; Lanjutkan
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ ISU 1 + ISU 4: MODAL KELOLA SURVEI (khusus Admin) ============ -->
+  <div x-show="showKegiatan" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
+       @keydown.escape.window="showKegiatan = false">
+    <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" @click.stop>
+      <div class="flex items-start gap-3 mb-4">
+        <div class="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+          <svg class="h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
+        </div>
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Kelola Survei / Kegiatan</h2>
+          <p class="text-sm text-slate-500">Tambah kegiatan pendataan baru. Sistem melayani banyak survei.</p>
+        </div>
+      </div>
+
+      <!-- Daftar kegiatan yang ada -->
+      <div class="rounded-lg border border-slate-200 divide-y divide-slate-100 max-h-40 overflow-y-auto thin-scroll mb-4">
+        <template x-for="k in kegiatanList" :key="k.id">
+          <div class="flex items-center justify-between px-3 py-2 text-sm">
+            <span class="font-medium text-slate-700"><span x-text="k.kode"></span> — <span x-text="k.nama"></span></span>
+            <span class="text-xs rounded-full px-2 py-0.5" :class="k.aktif ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
+                  x-text="k.aktif ? 'aktif' : 'nonaktif'"></span>
+          </div>
+        </template>
+      </div>
+
+      <!-- Form tambah -->
+      <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <input x-model="formKegiatan.kode" placeholder="Kode (mis. SUSENAS2026)"
+               class="sm:col-span-1 rounded-lg border border-slate-300 px-3 py-2.5 text-sm uppercase focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+        <input x-model="formKegiatan.nama" placeholder="Nama kegiatan (mis. Susenas 2026)"
+               class="sm:col-span-2 rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+      </div>
+      <p x-show="kegiatanGalat" class="mt-2 text-sm font-medium text-red-600" x-text="kegiatanGalat"></p>
+
+      <div class="flex items-center justify-end gap-2 mt-5">
+        <button @click="showKegiatan = false"
+                class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Tutup</button>
+        <button @click="tambahKegiatan()"
+                class="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 transition">Tambah Survei</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ KEANGGOTAAN: KELOLA PML ↔ KEGIATAN (khusus Admin) ============ -->
+  <div x-show="showPml" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
+       @keydown.escape.window="showPml = false">
+    <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6" @click.stop>
+      <div class="flex items-start gap-3 mb-4">
+        <div class="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+          <svg class="h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+        </div>
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Kelola Keanggotaan PML</h2>
+          <p class="text-sm text-slate-500">Buat akun PML, lalu centang kegiatan yang boleh diaksesnya. PML hanya bisa berpindah ke kegiatan yang dicentang.</p>
+        </div>
+      </div>
+
+      <!-- FORM BUAT AKUN PML (pengganti swa-daftar) -->
+      <div class="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mb-4">
+        <p class="text-xs font-semibold text-slate-600 mb-2">Buat Akun PML Baru</p>
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+          <input x-model="formPml.nama" placeholder="Nama"
+                 class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          <input x-model="formPml.email" type="email" placeholder="Email"
+                 class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+          <input x-model="formPml.password" type="text" placeholder="Password (min. 6)"
+                 class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+        </div>
+        <div class="flex items-center justify-between gap-3 mt-2">
+          <p x-show="pmlGalat" class="text-xs font-medium text-red-600" x-text="pmlGalat"></p>
+          <span x-show="!pmlGalat" class="text-xs text-slate-400">Password ditampilkan agar mudah Anda catat &amp; sampaikan ke PML.</span>
+          <button @click="buatPml()"
+                  class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 transition shrink-0">Buat Akun</button>
+        </div>
+      </div>
+
+      <div class="max-h-80 overflow-y-auto thin-scroll -mx-2 px-2">
+        <template x-for="p in pmlList" :key="p.id">
+          <div class="rounded-lg border border-slate-200 p-3 mb-2">
+            <div class="flex items-center justify-between mb-2">
+              <div>
+                <p class="text-sm font-semibold text-slate-800" x-text="p.nama"></p>
+                <p class="text-xs text-slate-500" x-text="p.email"></p>
+              </div>
+              <span class="text-xs text-slate-400" x-text="p.kegiatan.length + ' kegiatan'"></span>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <template x-for="k in kegiatanList" :key="k.id">
+                <button @click="togglePmlKegiatan(p, k.id)"
+                        class="text-xs rounded-full px-3 py-1 font-medium ring-1 transition"
+                        :class="p.kegiatan.includes(k.id)
+                          ? 'bg-blue-600 text-white ring-blue-600'
+                          : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50'">
+                  <span x-text="k.kode"></span>
+                </button>
+              </template>
+            </div>
+          </div>
+        </template>
+        <p x-show="pmlList.length === 0" class="text-sm text-slate-400 text-center py-8">
+          Belum ada akun PML. Buat akun pertama melalui formulir di atas.
+        </p>
+      </div>
+
+      <div class="flex items-center justify-between mt-5">
+        <p class="text-xs text-slate-400">Klik lencana kegiatan untuk mendaftarkan / mengeluarkan.</p>
+        <button @click="showPml = false"
+                class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Selesai</button>
+      </div>
+    </div>
+  </div>
+
+
+  <!-- ============================ RAIL NAVIGASI (KIRI) ============================ -->
+  <!-- Bukan routing multi-halaman: setiap butir mengubah `tab`, membuka modal, atau -->
+  <!-- menggulir ke bagian yang sudah ada di halaman yang sama.                      -->
+  <div x-show="sidebarBuka" x-cloak @click="sidebarBuka = false"
+       class="fixed inset-0 z-30 bg-slate-900/50 lg:hidden" x-transition.opacity></div>
+
+  <aside class="fixed inset-y-0 left-0 z-40 w-72 bg-rail text-slate-300 flex flex-col transition-transform duration-200 lg:translate-x-0"
+         :class="sidebarBuka ? 'translate-x-0' : '-translate-x-full'"
+         @keydown.escape.window="sidebarBuka = false">
+
+    <!-- Identitas sistem (survey-agnostic: tanpa nama survei) -->
+    <div class="h-20 flex items-center gap-3 px-5 border-b border-white/10 shrink-0">
+      <div class="h-11 w-11 rounded-xl bg-white flex items-center justify-center font-extrabold text-blue-800 tracking-tight shrink-0">BPS</div>
+      <div class="leading-tight min-w-0">
+        <p class="text-white font-bold text-base">SWARA</p>
+        <p class="text-[11px] text-slate-400 truncate">Sistem WhatsApp Responsif &amp; Akurat</p>
+      </div>
+      <button @click="sidebarBuka = false" class="ml-auto text-slate-400 hover:text-white lg:hidden" aria-label="Tutup navigasi">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+      </button>
+    </div>
+
+    <nav class="flex-1 overflow-y-auto thin-scroll px-3 py-4 space-y-1">
+      <p class="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Pemantauan</p>
+
+      <button @click="gulirKe('ringkasan')"
+              class="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/5 hover:text-white transition">
+        <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" /></svg>
+        <span class="flex-1 text-left">Ringkasan</span>
+      </button>
+
+      <button @click="pilihTab('semua')"
+              class="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition"
+              :class="tab === 'semua' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white'">
+        <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M8.25 6.75h12M8.25 12h12m-12 5.25h12M3.75 6.75h.008v.008H3.75V6.75zm0 5.25h.008v.008H3.75V12zm0 5.25h.008v.008H3.75v-.008z" /></svg>
+        <span class="flex-1 text-left">Data Responden</span>
+        <span class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+              :class="tab === 'semua' ? 'bg-white/25 text-white' : 'bg-white/10 text-slate-300'" x-text="rows.length"></span>
+      </button>
+
+      <button @click="pilihTab('hijau')"
+              class="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition"
+              :class="tab === 'hijau' ? 'bg-emerald-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white'">
+        <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M4.5 12.75l6 6 9-13.5" /></svg>
+        <span class="flex-1 text-left">Jalur Hijau</span>
+        <span class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+              :class="tab === 'hijau' ? 'bg-white/25 text-white' : 'bg-white/10 text-slate-300'" x-text="stats.valid"></span>
+      </button>
+
+      <button @click="pilihTab('fraud')"
+              class="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition"
+              :class="tab === 'fraud' ? 'bg-red-600 text-white' : 'text-slate-300 hover:bg-white/5 hover:text-white'">
+        <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+        <span class="flex-1 text-left">Indikasi Fraud</span>
+        <span class="rounded-full px-2 py-0.5 text-[11px] font-bold"
+              :class="tab === 'fraud' ? 'bg-white/25 text-white' : 'bg-white/10 text-slate-300'" x-text="stats.fraud"></span>
+      </button>
+
+      <!-- RBAC: kelompok administrasi hanya untuk Admin -->
+      <div x-show="me.role === 'Admin'" class="pt-4">
+        <p class="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Administrasi</p>
+
+        <button @click="showKegiatan = true; sidebarBuka = false"
+                class="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/5 hover:text-white transition">
+          <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
+          <span class="flex-1 text-left">Kelola Survei</span>
+        </button>
+
+        <button @click="bukaKelolaPml(); sidebarBuka = false"
+                class="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/5 hover:text-white transition">
+          <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
+          <span class="flex-1 text-left">Kelola PML</span>
+        </button>
+
+        <button @click="showAudit = true; gulirKe('audit')"
+                class="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-slate-300 hover:bg-white/5 hover:text-white transition">
+          <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
+          <span class="flex-1 text-left">Jejak Audit</span>
+        </button>
+      </div>
+
+      <!-- Butir ini hanya muncul saat gateway belum tersambung (mengarah ke kartu QR) -->
+      <div x-show="!waReady" class="pt-4">
+        <p class="px-3 pb-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">Sistem</p>
+        <button @click="gulirKe('wa')"
+                class="w-full flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold transition"
+                :class="waPutus ? 'bg-red-500/15 text-red-200 hover:bg-red-500/25' : 'bg-amber-400/10 text-amber-200 hover:bg-amber-400/20'">
+          <svg class="h-5 w-5 shrink-0" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 013.75 9.375v-4.5zM3.75 14.625c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5a1.125 1.125 0 01-1.125-1.125v-4.5zM13.5 4.875c0-.621.504-1.125 1.125-1.125h4.5c.621 0 1.125.504 1.125 1.125v4.5c0 .621-.504 1.125-1.125 1.125h-4.5A1.125 1.125 0 0113.5 9.375v-4.5zM13.5 13.5h2.25v2.25H13.5V13.5zm4.5 0h2.25v2.25H18V13.5zm-4.5 4.5h2.25v2.25H13.5V18zm4.5 0h2.25v2.25H18V18z" /></svg>
+          <span class="flex-1 text-left" x-text="waPutus ? 'WhatsApp Terputus' : 'Hubungkan WhatsApp'"></span>
+        </button>
+      </div>
+    </nav>
+
+    <!-- Identitas pengguna + konteks kegiatan aktif (dinamis) -->
+    <div class="shrink-0 p-3 border-t border-white/10">
+      <div class="rounded-xl bg-rail-soft p-3">
+        <div class="flex items-center gap-3">
+          <div class="h-10 w-10 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold shrink-0" x-text="inisial"></div>
+          <div class="min-w-0 flex-1">
+            <p class="text-sm font-semibold text-white truncate" x-text="me.nama || me.email || 'Pengguna'"></p>
+            <p class="text-[11px] text-slate-400 truncate">
+              <span x-text="me.role || '—'"></span>
+              <span x-show="kegiatanAktif"> · <span x-text="kegiatanAktif?.nama"></span></span>
+            </p>
+          </div>
+          <button @click="logout()" class="shrink-0 text-slate-400 hover:text-white transition" aria-label="Keluar" title="Keluar">
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 9V5.25A2.25 2.25 0 0013.5 3h-6a2.25 2.25 0 00-2.25 2.25v13.5A2.25 2.25 0 007.5 21h6a2.25 2.25 0 002.25-2.25V15M12 9l-3 3m0 0l3 3m-3-3h12.75" /></svg>
+          </button>
+        </div>
+      </div>
+      <p class="mt-2 px-1 text-[10px] text-slate-500">WITA · SWARA v1.0 · BPS Kabupaten Karangasem</p>
+    </div>
+  </aside>
+
+
+  <!-- ============================ AREA KONTEN ============================ -->
+  <div class="lg:pl-72 min-h-screen flex flex-col">
+
+    <!-- TOPBAR -->
+    <header class="sticky top-0 z-20 bg-white/95 backdrop-blur border-b border-slate-200">
+      <div class="px-4 sm:px-6 lg:px-8 py-3 flex items-center gap-3">
+        <button @click="sidebarBuka = true" class="lg:hidden text-slate-500 hover:text-slate-800 shrink-0" aria-label="Buka navigasi">
+          <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5" /></svg>
+        </button>
+
+        <div class="min-w-0 flex-1">
+          <h1 class="text-base sm:text-lg font-bold text-slate-900 truncate">Dashboard Penjaminan Kualitas Data</h1>
+          <p class="text-xs text-slate-500 truncate">
+            <span x-text="kegiatanAktif ? kegiatanAktif.nama : 'Belum ada kegiatan dipilih'"></span>
+            <span class="hidden sm:inline"> — Instant Feedback Loop · BPS Kabupaten Karangasem</span>
+          </p>
+        </div>
+
         <!-- ISU 1: pemilih survei/kegiatan aktif -->
         <select x-show="kegiatanList.length > 0" x-model="kegiatanDipilih" @change="gantiKegiatan()"
-                title="Pilih survei/kegiatan yang sedang Anda kerjakan"
-                class="hidden sm:block rounded-lg bg-white/15 ring-1 ring-white/25 text-white text-xs sm:text-sm px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-white/50 disabled:opacity-70 [&>option]:text-slate-800">
+                title="Pilih survei/kegiatan yang sedang Anda kerjakan" aria-label="Pilih survei/kegiatan"
+                class="hidden md:block rounded-lg border border-slate-300 bg-white text-slate-700 text-sm px-2.5 py-1.5 outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500">
           <template x-for="k in kegiatanList" :key="k.id">
             <option :value="k.id" x-text="k.nama + (k.aktif ? '' : ' (nonaktif)')"></option>
           </template>
         </select>
 
-        <div class="flex items-center gap-2 rounded-full px-3 py-1.5 text-xs sm:text-sm font-medium"
-             :class="waReady ? 'bg-emerald-500/20 text-emerald-100 ring-1 ring-emerald-300/40' : 'bg-amber-500/20 text-amber-100 ring-1 ring-amber-300/40'">
-          <span class="h-2.5 w-2.5 rounded-full" :class="waReady ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'"></span>
-          <span x-text="waReady ? 'WA Gateway Aktif' : 'Menunggu Koneksi WA…'"></span>
-        </div>
-        <!-- Badge peran + nama pengguna -->
-        <span class="hidden md:inline-flex items-center gap-1.5 text-sm text-blue-100">
-          <span class="rounded-md bg-white/15 ring-1 ring-white/25 px-2 py-0.5 text-xs font-semibold"
-                x-text="me.role || 'PML'"></span>
-          <span x-text="me.nama || me.email || ''"></span>
-        </span>
-        <button @click="logout()" class="rounded-lg bg-white/15 hover:bg-white/25 ring-1 ring-white/25 px-3 py-1.5 text-xs sm:text-sm font-semibold transition">Keluar</button>
-      </div>
-    </div>
-  </header>
+        <!-- Status gateway: tiga kondisi nyata (aktif / menunggu QR / terputus) -->
+        <button @click="gulirKe('wa')" :disabled="waReady"
+                :title="waReady ? 'Gateway WhatsApp siap mengirim' : 'Klik untuk membuka kartu pemindaian QR'"
+                class="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs sm:text-sm font-semibold ring-1 transition disabled:cursor-default shrink-0"
+                :class="waReady ? 'bg-emerald-50 text-emerald-700 ring-emerald-200'
+                        : (waPutus ? 'bg-red-50 text-red-700 ring-red-200 hover:bg-red-100'
+                                   : 'bg-amber-50 text-amber-700 ring-amber-200 hover:bg-amber-100')">
+          <span class="h-2 w-2 rounded-full" :class="waReady ? 'bg-emerald-500 animate-pulse' : (waPutus ? 'bg-red-500' : 'bg-amber-500 animate-pulse')"></span>
+          <span class="hidden sm:inline" x-text="waReady ? 'WA Gateway Aktif' : (waPutus ? 'WA Terputus' : 'Menunggu Koneksi WA')"></span>
+          <span class="sm:hidden">WA</span>
+        </button>
 
-  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-8 space-y-8">
-
-    <!-- ============ ISU 1 + ISU 4: MODAL KELOLA SURVEI (khusus Admin) ============ -->
-    <div x-show="showKegiatan" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
-         @keydown.escape.window="showKegiatan = false">
-      <div class="bg-white rounded-xl shadow-xl max-w-lg w-full p-6" @click.stop>
-        <div class="flex items-start gap-3 mb-4">
-          <div class="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
-            <svg class="h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
+        <!-- Identitas + peran -->
+        <div class="hidden lg:flex items-center gap-3 pl-3 border-l border-slate-200 shrink-0">
+          <div class="text-right leading-tight">
+            <p class="text-sm font-semibold text-slate-800" x-text="me.nama || 'Pengguna'"></p>
+            <p class="text-xs text-slate-400" x-text="me.email || ''"></p>
           </div>
-          <div>
-            <h2 class="text-lg font-bold text-slate-900">Kelola Survei / Kegiatan</h2>
-            <p class="text-sm text-slate-500">Tambah kegiatan pendataan baru. Sistem melayani banyak survei.</p>
-          </div>
-        </div>
-
-        <!-- Daftar kegiatan yang ada -->
-        <div class="rounded-lg border border-slate-200 divide-y divide-slate-100 max-h-40 overflow-y-auto mb-4">
-          <template x-for="k in kegiatanList" :key="k.id">
-            <div class="flex items-center justify-between px-3 py-2 text-sm">
-              <span class="font-medium text-slate-700"><span x-text="k.kode"></span> — <span x-text="k.nama"></span></span>
-              <span class="text-xs rounded-full px-2 py-0.5" :class="k.aktif ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-500'"
-                    x-text="k.aktif ? 'aktif' : 'nonaktif'"></span>
-            </div>
-          </template>
-        </div>
-
-        <!-- Form tambah -->
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <input x-model="formKegiatan.kode" placeholder="Kode (mis. SUSENAS2026)"
-                 class="sm:col-span-1 rounded-lg border border-slate-300 px-3 py-2.5 text-sm uppercase focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-          <input x-model="formKegiatan.nama" placeholder="Nama kegiatan (mis. Susenas 2026)"
-                 class="sm:col-span-2 rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-        </div>
-        <p x-show="kegiatanGalat" class="mt-2 text-sm font-medium text-red-600" x-text="kegiatanGalat"></p>
-
-        <div class="flex items-center justify-end gap-2 mt-5">
-          <button @click="showKegiatan = false"
-                  class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Tutup</button>
-          <button @click="tambahKegiatan()"
-                  class="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 transition">Tambah Survei</button>
+          <span class="rounded-md bg-blue-50 text-blue-700 ring-1 ring-blue-200 px-2 py-0.5 text-xs font-bold"
+                x-text="me.role || '—'"></span>
+          <div class="h-9 w-9 rounded-full bg-blue-600 text-white flex items-center justify-center font-bold" x-text="inisial"></div>
         </div>
       </div>
-    </div>
+    </header>
 
-    <!-- ============ KEANGGOTAAN: KELOLA PML ↔ KEGIATAN (khusus Admin) ============ -->
-    <div x-show="showPml" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
-         @keydown.escape.window="showPml = false">
-      <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6" @click.stop>
-        <div class="flex items-start gap-3 mb-4">
-          <div class="h-11 w-11 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
-            <svg class="h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
-          </div>
-          <div>
-            <h2 class="text-lg font-bold text-slate-900">Kelola Keanggotaan PML</h2>
-            <p class="text-sm text-slate-500">Buat akun PML, lalu centang kegiatan yang boleh diaksesnya. PML hanya bisa berpindah ke kegiatan yang dicentang.</p>
-          </div>
-        </div>
+    <main class="flex-1 px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
-        <!-- FORM BUAT AKUN PML (pengganti swa-daftar) -->
-        <div class="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mb-4">
-          <p class="text-xs font-semibold text-slate-600 mb-2">Buat Akun PML Baru</p>
-          <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-            <input x-model="formPml.nama" placeholder="Nama"
-                   class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-            <input x-model="formPml.email" type="email" placeholder="Email"
-                   class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-            <input x-model="formPml.password" type="text" placeholder="Password (min. 6)"
-                   class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+      <!-- ============ FITUR 6: KARTU QR CODE (muncul saat WA belum aktif) ============ -->
+      <section id="wa" x-show="!waReady" x-transition
+               class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 p-5 sm:p-6 border-l-4 scroll-mt-24"
+               :class="waPutus ? 'border-red-500' : 'border-amber-500'">
+        <div class="flex flex-col md:flex-row md:items-center gap-6">
+          <div class="flex-1">
+            <span class="inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold"
+                  :class="waPutus ? 'bg-red-100 text-red-700' : 'bg-amber-100 text-amber-800'"
+                  x-text="waPutus ? 'Terputus' : 'Belum Tersambung'"></span>
+            <h2 class="text-lg font-bold text-slate-900 mt-2">Hubungkan WhatsApp Gateway</h2>
+            <p class="text-sm text-slate-500 mt-1 leading-relaxed">
+              <span x-show="!waPutus">Pindai QR di samping menggunakan HP: buka <span class="font-semibold">WhatsApp → Setelan → Perangkat Tertaut → Tautkan Perangkat</span>.</span>
+              <span x-show="waPutus">Sesi WhatsApp terputus dari perangkat. Pindai ulang QR di samping untuk menyambungkan kembali.</span>
+              Setelah tersambung, kartu ini otomatis hilang dan status di atas berubah menjadi hijau.
+            </p>
+            <p x-show="!hasQR" class="text-xs text-amber-600 mt-3">Menyiapkan QR… mohon tunggu beberapa detik.</p>
           </div>
-          <div class="flex items-center justify-between mt-2">
-            <p x-show="pmlGalat" class="text-xs font-medium text-red-600" x-text="pmlGalat"></p>
-            <span x-show="!pmlGalat" class="text-xs text-slate-400">Password ditampilkan agar mudah Anda catat &amp; sampaikan ke PML.</span>
-            <button @click="buatPml()"
-                    class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 transition shrink-0">Buat Akun</button>
+          <div class="flex items-center justify-center">
+            <div x-ref="qrbox" class="p-3 bg-white rounded-lg ring-1 ring-slate-200"></div>
           </div>
         </div>
+      </section>
 
-        <div class="max-h-80 overflow-y-auto thin-scroll -mx-2 px-2">
-          <template x-for="p in pmlList" :key="p.id">
-            <div class="rounded-lg border border-slate-200 p-3 mb-2">
-              <div class="flex items-center justify-between mb-2">
-                <div>
-                  <p class="text-sm font-semibold text-slate-800" x-text="p.nama"></p>
-                  <p class="text-xs text-slate-500" x-text="p.email"></p>
-                </div>
-                <span class="text-xs text-slate-400" x-text="p.kegiatan.length + ' kegiatan'"></span>
-              </div>
-              <div class="flex flex-wrap gap-2">
-                <template x-for="k in kegiatanList" :key="k.id">
-                  <button @click="togglePmlKegiatan(p, k.id)"
-                          class="text-xs rounded-full px-3 py-1 font-medium ring-1 transition"
-                          :class="p.kegiatan.includes(k.id)
-                            ? 'bg-blue-600 text-white ring-blue-600'
-                            : 'bg-white text-slate-600 ring-slate-300 hover:bg-slate-50'">
-                    <span x-text="k.kode"></span>
-                  </button>
-                </template>
-              </div>
-            </div>
-          </template>
-          <p x-show="pmlList.length === 0" class="text-sm text-slate-400 text-center py-8">
-            Belum ada akun PML. Buat akun pertama melalui formulir di atas.
-          </p>
-        </div>
+      <!-- ============ FITUR 4: KARTU STATISTIK (semua angka dari GET /api/stats) ============ -->
+      <section id="ringkasan" class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-5 gap-4 scroll-mt-24">
 
-        <div class="flex items-center justify-between mt-5">
-          <p class="text-xs text-slate-400">Klik lencana kegiatan untuk mendaftarkan / mengeluarkan.</p>
-          <button @click="showPml = false"
-                  class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Selesai</button>
-        </div>
-      </div>
-    </div>
-
-    <!-- ============ MITIGASI ISU 1: PAKTA INTEGRITAS KERAHASIAAN DATA ============ -->
-    <!-- Modal pemblokir: data tidak dapat diakses sebelum pernyataan disetujui. -->
-    <div x-show="!paktaOK" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 px-4">
-      <div class="bg-white rounded-xl shadow-xl max-w-2xl w-full p-6 sm:p-8">
-        <div class="flex items-start gap-3 mb-4">
-          <div class="h-11 w-11 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
-            <svg class="h-6 w-6 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
-          </div>
-          <div>
-            <h2 class="text-lg font-bold text-slate-900">Pakta Integritas Kerahasiaan Data</h2>
-            <p class="text-sm text-slate-500">Wajib disetujui sebelum mengakses data responden.</p>
-          </div>
-        </div>
-
-        <div class="bg-slate-50 rounded-lg p-4 text-sm text-slate-700 leading-relaxed max-h-64 overflow-y-auto space-y-2">
-          <p>Dengan ini saya menyatakan bahwa dalam mengakses dan mengolah data pada Sistem SWARA (BPS Kabupaten Karangasem):</p>
-          <ol class="list-decimal ml-5 space-y-1.5">
-            <li>Saya terikat kewajiban menjaga <span class="font-semibold">kerahasiaan data responden</span> sesuai <span class="font-semibold">UU No. 16 Tahun 1997 tentang Statistik</span> dan <span class="font-semibold">UU No. 27 Tahun 2022 tentang Pelindungan Data Pribadi</span>.</li>
-            <li>Data hanya digunakan untuk keperluan <span class="font-semibold">penjaminan kualitas dan pengawasan pencacahan</span>, tidak untuk kepentingan lain.</li>
-            <li>Saya <span class="font-semibold">tidak akan menyebarluaskan</span> data individual (nama usaha, nomor telepon) kepada pihak yang tidak berwenang.</li>
-            <li>Saya memahami bahwa <span class="font-semibold">seluruh aktivitas saya dicatat</span> dalam jejak audit sistem dan dapat diperiksa sewaktu-waktu.</li>
-            <li>Berkas hasil ekspor bersifat rahasia, memuat penanda identitas pengunduh, dan menjadi tanggung jawab saya.</li>
-            <li>Pelanggaran atas pernyataan ini dapat dikenakan sanksi sesuai ketentuan kepegawaian dan peraturan perundang-undangan.</li>
-          </ol>
-        </div>
-
-        <label class="flex items-start gap-3 mt-4 cursor-pointer">
-          <input type="checkbox" x-model="paktaCentang" class="mt-0.5 rounded border-slate-300 text-blue-700 focus:ring-blue-500" />
-          <span class="text-sm text-slate-700">Saya telah membaca, memahami, dan menyetujui pernyataan kerahasiaan data di atas.</span>
-        </label>
-
-        <div class="flex items-center justify-between mt-5 gap-3">
-          <span class="text-xs text-slate-400">Versi dokumen: <span x-text="paktaVersi"></span></span>
-          <div class="flex gap-2">
-            <button @click="logout()" class="rounded-lg border border-slate-300 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">Keluar</button>
-            <button @click="setujuiPakta()" :disabled="!paktaCentang"
-                    class="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition">
-              Setuju &amp; Lanjutkan
-            </button>
-          </div>
-        </div>
-      </div>
-    </div>
-
-
-    <!-- ============ FITUR 6: KARTU QR CODE (muncul saat WA belum aktif) ============ -->
-    <section x-show="!waReady" x-transition class="bg-white rounded-xl shadow-md p-6 border-l-4 border-orange-500">
-      <div class="flex flex-col md:flex-row md:items-center gap-6">
-        <div class="flex-1">
-          <h2 class="text-lg font-bold text-slate-900">Hubungkan WhatsApp Gateway</h2>
-          <p class="text-sm text-slate-500 mt-1 leading-relaxed">
-            Scan QR di samping menggunakan HP: buka <span class="font-semibold">WhatsApp → Setelan → Perangkat Tertaut → Tautkan Perangkat</span>.
-            Setelah tersambung, kartu ini otomatis hilang dan status berubah menjadi hijau.
-          </p>
-          <p x-show="!hasQR" class="text-xs text-amber-600 mt-3">Menyiapkan QR… mohon tunggu beberapa detik.</p>
-        </div>
-        <div class="flex items-center justify-center">
-          <div x-ref="qrbox" class="p-3 bg-white rounded-lg ring-1 ring-slate-200"></div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================ ACTION BAR ============================ -->
-    <section class="bg-white rounded-xl shadow-md p-5 sm:p-6">
-      <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
-        <div>
-          <h2 class="text-lg font-bold text-slate-900">Panel Kendali Verifikasi</h2>
-          <p class="text-sm text-slate-500 mt-1">Impor data responden, lalu kirim pesan verifikasi kunjungan petugas.</p>
-        </div>
-
-        <div class="flex flex-wrap items-center gap-3">
-          <!-- FITUR 2: Unduh Template -->
-          <a href="/api/download-template"
-             class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" /></svg>
-            Template
-          </a>
-
-          <!-- MITIGASI ISU 2: ambil SAMPEL ACAK bila kerangka data tidak lengkap -->
-          <button @click="pilihSampel()"
-                  class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 3.75V16.5L12 14.25 7.5 16.5V3.75m9 0H18A2.25 2.25 0 0120.25 6v12A2.25 2.25 0 0118 20.25H6A2.25 2.25 0 013.75 18V6A2.25 2.25 0 016 3.75h1.5m9 0h-9" /></svg>
-            Sampel Acak
-          </button>
-
-          <!-- MITIGASI ISU 1: pemusnahan nomor (khusus Admin — tindakan permanen) -->
-          <button x-show="me.role === 'Admin'" @click="musnahkanNomor()"
-                  class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-            Retensi
-          </button>
-
-          <!-- ISU 1 + ISU 4: kelola survei/kegiatan (khusus Admin) -->
-          <button x-show="me.role === 'Admin'" @click="showKegiatan = true"
-                  class="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" /></svg>
-            Tambah Survei
-          </button>
-
-          <!-- KEANGGOTAAN: daftarkan PML ke kegiatan (khusus Admin) -->
-          <button x-show="me.role === 'Admin'" @click="bukaKelolaPml()"
-                  class="inline-flex items-center gap-2 rounded-lg border border-blue-300 bg-blue-50 px-4 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-100 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" /></svg>
-            Kelola PML
-          </button>
-
-          <!-- FITUR 2 + MITIGASI ISU 1: Ekspor (default nomor TERSAMAR + watermark) -->
-          <a href="/api/export-report" @click="catatEkspor()"
-             class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
-            Ekspor
-          </a>
-
-          <!-- Upload CSV -->
-          <label class="cursor-pointer inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
-            <span>Upload CSV</span>
-            <input type="file" accept=".csv" class="hidden" @change="uploadCsv($event)" />
-          </label>
-
-          <!-- Tambah manual -->
-          <button @click="showForm = !showForm"
-                  class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
-            Tambah Manual
-          </button>
-
-          <!-- Reset status -->
-          <button @click="resetAll()"
-                  class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
-            Reset
-          </button>
-
-          <!-- Blast SEMUA (oranye) -->
-          <button @click="blast()" :disabled="blasting"
-                  class="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition">
-            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
-            <span x-text="blasting ? 'Mengirim…' : 'Blast Semua'"></span>
-          </button>
-        </div>
-      </div>
-
-      <!-- Form tambah manual -->
-      <div x-show="showForm" x-transition class="mt-5 border-t border-slate-100 pt-5">
-        <div class="grid grid-cols-1 sm:grid-cols-6 gap-3">
-          <input x-model="form.nama_usaha" placeholder="Nama Usaha" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-          <input x-model="form.no_hp" placeholder="No HP Responden" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-          <input x-model="form.nama_petugas" placeholder="Nama Petugas" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-          <input x-model="form.no_hp_petugas" placeholder="No HP Petugas (opsional)" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-          <select x-model="form.sumber_data" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-            <option value="MANUAL_PML">Sumber: Manual PML</option>
-            <option value="SQL_LAB">Sumber: SQL Lab</option>
-            <option value="CAPI">Sumber: CAPI</option>
-            <option value="LAINNYA">Sumber: Lainnya</option>
-          </select>
-          <button @click="addManual()" class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-800 transition">Simpan</button>
-        </div>
-        <p class="text-xs text-slate-400 mt-2">No HP Petugas dipakai untuk fitur <span class="font-semibold">Auto-Teguran</span> saat responden membalas "2" (Fraud).</p>
-      </div>
-
-      <!-- 3) BANNER INLINE: status menetap (tidak hilang sendiri) -->
-      <div x-show="!waReady" class="mt-4 flex items-start gap-2.5 rounded-lg bg-amber-50 ring-1 ring-amber-200 px-4 py-3">
-        <svg class="h-5 w-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-        <p class="text-sm text-amber-800">Gateway WhatsApp belum aktif. Pindai QR terlebih dahulu sebelum mengirim pesan verifikasi.</p>
-      </div>
-      <div class="mt-4 flex items-start gap-2.5 rounded-lg bg-slate-50 ring-1 ring-slate-200 px-4 py-3">
-        <svg class="h-5 w-5 text-slate-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
-        <p class="text-sm text-slate-600">Nomor responden ditampilkan tersamar. Membuka nomor lengkap akan tercatat dalam jejak audit.</p>
-      </div>
-    </section>
-
-    <!-- ============ FITUR 4: KARTU STATISTIK (grid responsif 1 -> 3 kolom) ============ -->
-    <section class="grid grid-cols-1 md:grid-cols-3 gap-6">
-      <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-blue-700">
-        <div class="flex items-start justify-between">
-          <div>
+        <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 border-l-4 border-blue-700 p-5">
+          <div class="flex items-start justify-between gap-3">
             <p class="text-sm font-medium text-slate-500">Total Pesan Terkirim</p>
-            <p class="mt-2 text-4xl font-extrabold text-blue-700" x-text="stats.terkirim"></p>
-          </div>
-          <div class="h-12 w-12 rounded-xl bg-blue-50 flex items-center justify-center">
-            <svg class="h-6 w-6 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
-          </div>
-        </div>
-        <p class="mt-3 text-xs text-slate-400">dari <span x-text="stats.total"></span> total responden</p>
-      </div>
-
-      <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-emerald-500">
-        <div class="flex items-start justify-between">
-          <div>
-            <p class="text-sm font-medium text-slate-500">Responden Valid (Balas 1)</p>
-            <p class="mt-2 text-4xl font-extrabold text-emerald-600" x-text="stats.valid"></p>
-          </div>
-          <div class="h-12 w-12 rounded-xl bg-emerald-50 flex items-center justify-center">
-            <svg class="h-6 w-6 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-          </div>
-        </div>
-        <p class="mt-3 text-xs text-slate-400">termasuk hasil validasi manual</p>
-      </div>
-
-      <div class="bg-white rounded-xl shadow-md p-6 border-l-4 border-red-500">
-        <div class="flex items-start justify-between">
-          <div>
-            <p class="text-sm font-medium text-slate-500">Indikasi Fraud (Balas 2)</p>
-            <p class="mt-2 text-4xl font-extrabold text-red-600" x-text="stats.fraud"></p>
-          </div>
-          <div class="h-12 w-12 rounded-xl bg-red-50 flex items-center justify-center">
-            <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
-          </div>
-        </div>
-        <p class="mt-3 text-xs text-slate-400">wajib ditindaklanjuti / cek lapangan</p>
-      </div>
-    </section>
-
-    <!-- ============================ GRAFIK + TABEL ============================ -->
-    <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      <div class="bg-white rounded-xl shadow-md p-6 lg:col-span-1">
-        <h3 class="text-base font-bold text-slate-900">Komposisi Respons</h3>
-        <p class="text-sm text-slate-500 mb-4">Sebaran status seluruh responden</p>
-        <div class="relative h-64"><canvas id="chartRespons"></canvas></div>
-      </div>
-
-      <div class="bg-white rounded-xl shadow-md lg:col-span-2 overflow-hidden">
-        <div class="p-5 sm:p-6 border-b border-slate-100 space-y-4">
-          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div>
-              <h3 class="text-base font-bold text-slate-900">Data Responden</h3>
-              <p class="text-sm text-slate-500">Diperbarui otomatis setiap 5 detik</p>
+            <div class="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center shrink-0">
+              <svg class="h-5 w-5 text-blue-700" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21.75 6.75v10.5a2.25 2.25 0 01-2.25 2.25h-15a2.25 2.25 0 01-2.25-2.25V6.75m19.5 0A2.25 2.25 0 0019.5 4.5h-15a2.25 2.25 0 00-2.25 2.25m19.5 0v.243a2.25 2.25 0 01-1.07 1.916l-7.5 4.615a2.25 2.25 0 01-2.36 0L3.32 8.91a2.25 2.25 0 01-1.07-1.916V6.75" /></svg>
             </div>
-            <!-- FITUR 1: Blast Terpilih -->
-            <button @click="blastSelected()"
-                    class="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50 transition"
-                    :disabled="selected.length === 0">
-              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
-              Blast Terpilih (<span x-text="selected.length"></span>)
+          </div>
+          <p class="mt-2 text-3xl font-extrabold text-blue-700" x-text="stats.terkirim"></p>
+          <p class="mt-1.5 text-xs text-slate-400">dari <span x-text="stats.total"></span> total responden</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 border-l-4 border-emerald-500 p-5">
+          <div class="flex items-start justify-between gap-3">
+            <p class="text-sm font-medium text-slate-500">Terverifikasi Valid</p>
+            <div class="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center shrink-0">
+              <svg class="h-5 w-5 text-emerald-600" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+          </div>
+          <p class="mt-2 text-3xl font-extrabold text-emerald-600" x-text="stats.valid"></p>
+          <p class="mt-1.5 text-xs text-slate-400">kunjungan sah · termasuk validasi manual</p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 border-l-4 border-red-500 p-5">
+          <div class="flex items-start justify-between gap-3">
+            <p class="text-sm font-medium text-slate-500">Indikasi Fraud</p>
+            <div class="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+              <svg class="h-5 w-5 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126zM12 15.75h.007v.008H12v-.008z" /></svg>
+            </div>
+          </div>
+          <p class="mt-2 text-3xl font-extrabold text-red-600" x-text="stats.fraud"></p>
+          <p class="mt-1.5 text-xs text-slate-400">perlu tindak lanjut / cek lapangan</p>
+        </div>
+
+        <!-- Dihitung di frontend: backend tidak menyediakan field response_rate -->
+        <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 border-l-4 border-amber-500 p-5">
+          <div class="flex items-start justify-between gap-3">
+            <p class="text-sm font-medium text-slate-500">Response Rate</p>
+            <div class="h-10 w-10 rounded-xl bg-amber-50 flex items-center justify-center shrink-0">
+              <svg class="h-5 w-5 text-amber-600" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 4.5a.75.75 0 01.721.544l.813 2.846a3.75 3.75 0 002.576 2.576l2.846.813a.75.75 0 010 1.442l-2.846.813a3.75 3.75 0 00-2.576 2.576l-.813 2.846a.75.75 0 01-1.442 0l-.813-2.846a3.75 3.75 0 00-2.576-2.576l-2.846-.813a.75.75 0 010-1.442l2.846-.813A3.75 3.75 0 007.466 7.89l.813-2.846A.75.75 0 019 4.5z" /></svg>
+            </div>
+          </div>
+          <p class="mt-2 text-3xl font-extrabold text-amber-600"><span x-text="responseRate"></span>%</p>
+          <p class="mt-1.5 text-xs text-slate-400">
+            <span x-text="stats.valid + stats.fraud"></span> dari <span x-text="stats.terkirim"></span> pesan dibalas
+          </p>
+        </div>
+
+        <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 border-l-4 border-slate-400 p-5">
+          <div class="flex items-start justify-between gap-3">
+            <p class="text-sm font-medium text-slate-500">Belum Dikirim</p>
+            <div class="h-10 w-10 rounded-xl bg-slate-100 flex items-center justify-center shrink-0">
+              <svg class="h-5 w-5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            </div>
+          </div>
+          <p class="mt-2 text-3xl font-extrabold text-slate-700" x-text="stats.pending"></p>
+          <p class="mt-1.5 text-xs text-slate-400">
+            <span class="font-semibold text-orange-600" x-text="stats.gagal"></span> gagal kirim · perlu kirim ulang
+          </p>
+        </div>
+      </section>
+
+      <!-- ============================ PANEL KENDALI ============================ -->
+      <section class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 p-5 sm:p-6">
+        <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-5">
+          <div>
+            <h2 class="text-base font-bold text-slate-900">Panel Kendali Verifikasi</h2>
+            <p class="text-sm text-slate-500 mt-1">Impor data responden, lalu kirim pesan verifikasi kunjungan petugas.</p>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-2.5">
+            <!-- FITUR 2: Unduh Template -->
+            <a href="/api/download-template"
+               class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h3.75M9 15h3.75M9 18h3.75m3 .75H18a2.25 2.25 0 002.25-2.25V6.108c0-1.135-.845-2.098-1.976-2.192a48.424 48.424 0 00-1.123-.08m-5.801 0c-.065.21-.1.433-.1.664 0 .414.336.75.75.75h4.5a.75.75 0 00.75-.75 2.25 2.25 0 00-.1-.664m-5.8 0A2.251 2.251 0 0113.5 2.25H15c1.012 0 1.867.668 2.15 1.586m-5.8 0c-.376.023-.75.05-1.124.08C9.095 4.01 8.25 4.973 8.25 6.108V8.25m0 0H4.875c-.621 0-1.125.504-1.125 1.125v11.25c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125-.504 1.125-1.125V9.375c0-.621-.504-1.125-1.125-1.125H8.25z" /></svg>
+              Template
+            </a>
+
+            <!-- FITUR 2 + MITIGASI ISU 1: Ekspor (default nomor TERSAMAR + watermark) -->
+            <a href="/api/export-report" @click="catatEkspor()"
+               class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
+              Ekspor
+            </a>
+
+            <!-- MITIGASI ISU 2: ambil SAMPEL ACAK bila kerangka data tidak lengkap -->
+            <button @click="pilihSampel()"
+                    class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 3.75V16.5L12 14.25 7.5 16.5V3.75m9 0H18A2.25 2.25 0 0120.25 6v12A2.25 2.25 0 0118 20.25H6A2.25 2.25 0 013.75 18V6A2.25 2.25 0 016 3.75h1.5m9 0h-9" /></svg>
+              Sampel Acak
+            </button>
+
+            <!-- Upload CSV -->
+            <label class="cursor-pointer inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16.5V9.75m0 0l3 3m-3-3l-3 3M6.75 19.5a4.5 4.5 0 01-1.41-8.775 5.25 5.25 0 0110.233-2.33 3 3 0 013.758 3.848A3.752 3.752 0 0118 19.5H6.75z" /></svg>
+              <span>Upload CSV</span>
+              <input type="file" accept=".csv" class="hidden" @change="uploadCsv($event)" />
+            </label>
+
+            <!-- Tambah manual -->
+            <button @click="showForm = !showForm"
+                    class="inline-flex items-center gap-2 rounded-lg border bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition"
+                    :class="showForm ? 'border-blue-500 ring-2 ring-blue-200' : 'border-slate-300'">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+              Tambah Manual
+            </button>
+
+            <!-- Reset status -->
+            <button @click="resetAll()"
+                    class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" /></svg>
+              Reset
+            </button>
+
+            <!-- MITIGASI ISU 1: pemusnahan nomor (khusus Admin — tindakan permanen) -->
+            <button x-show="me.role === 'Admin'" @click="musnahkanNomor()"
+                    class="inline-flex items-center gap-2 rounded-lg border border-red-300 bg-red-50 px-3.5 py-2.5 text-sm font-semibold text-red-700 hover:bg-red-100 transition">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+              Retensi
+            </button>
+
+            <!-- Blast SEMUA (aksi utama) -->
+            <button @click="blast()" :disabled="blasting"
+                    class="inline-flex items-center gap-2 rounded-lg bg-orange-500 px-5 py-2.5 text-sm font-bold text-white shadow-sm hover:bg-orange-600 disabled:opacity-60 disabled:cursor-not-allowed transition">
+              <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
+              <span x-text="blasting ? 'Mengirim…' : 'Blast Semua'"></span>
             </button>
           </div>
+        </div>
 
-          <!-- TAB: Semua / Jalur Hijau (Valid) / Indikasi Fraud -->
+        <!-- Form tambah manual -->
+        <div x-show="showForm" x-transition class="mt-5 border-t border-slate-100 pt-5">
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+            <input x-model="form.nama_usaha" placeholder="Nama Usaha" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <input x-model="form.no_hp" placeholder="No HP Responden" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <input x-model="form.nama_petugas" placeholder="Nama Petugas" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <input x-model="form.no_hp_petugas" placeholder="No HP Petugas (opsional)" class="rounded-lg border border-slate-300 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+            <select x-model="form.sumber_data" aria-label="Sumber data" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+              <option value="MANUAL_PML">Sumber: Manual PML</option>
+              <option value="SQL_LAB">Sumber: SQL Lab</option>
+              <option value="CAPI">Sumber: CAPI</option>
+              <option value="LAINNYA">Sumber: Lainnya</option>
+            </select>
+            <button @click="addManual()" class="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 transition">Simpan</button>
+          </div>
+          <p class="text-xs text-slate-400 mt-2">No HP Petugas dipakai untuk fitur <span class="font-semibold">Auto-Teguran</span> saat responden membalas "2" (Fraud).</p>
+        </div>
+
+        <!-- 3) BANNER INLINE: status menetap (tidak hilang sendiri) -->
+        <div class="mt-4 grid grid-cols-1 xl:grid-cols-2 gap-3">
+          <div x-show="!waReady" class="flex items-start gap-2.5 rounded-lg bg-amber-50 ring-1 ring-amber-200 px-4 py-3">
+            <svg class="h-5 w-5 text-amber-600 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+            <p class="text-sm text-amber-800">Gateway WhatsApp belum aktif. Pindai QR terlebih dahulu sebelum mengirim pesan verifikasi.</p>
+          </div>
+          <div class="flex items-start gap-2.5 rounded-lg bg-slate-50 ring-1 ring-slate-200 px-4 py-3">
+            <svg class="h-5 w-5 text-slate-500 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M16.5 10.5V6.75a4.5 4.5 0 10-9 0v3.75m-.75 11.25h10.5a2.25 2.25 0 002.25-2.25v-6.75a2.25 2.25 0 00-2.25-2.25H6.75a2.25 2.25 0 00-2.25 2.25v6.75a2.25 2.25 0 002.25 2.25z" /></svg>
+            <p class="text-sm text-slate-600">Nomor responden ditampilkan tersamar. Membuka nomor lengkap akan tercatat dalam jejak audit.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================ GRAFIK + TABEL ============================ -->
+      <section class="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+
+        <!-- Kolom kiri: komposisi respons + penjelasan otomatisasi -->
+        <div class="lg:col-span-1 space-y-6">
+          <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 p-5 sm:p-6">
+            <h3 class="text-base font-bold text-slate-900">Komposisi Respons</h3>
+            <p class="text-sm text-slate-500">Sebaran status seluruh responden</p>
+
+            <div class="relative h-56 mt-4">
+              <canvas id="chartRespons"></canvas>
+              <!-- Angka tengah donat: total responden pada kegiatan aktif -->
+              <div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                <span class="text-3xl font-extrabold text-slate-900" x-text="stats.total"></span>
+                <span class="text-xs text-slate-400">responden</span>
+              </div>
+            </div>
+
+            <!-- Legenda kustom: label + angka nyata dari stats -->
+            <div class="mt-5 grid grid-cols-2 gap-x-4 gap-y-2.5 text-xs">
+              <div class="flex items-center gap-2">
+                <span class="h-2.5 w-2.5 rounded-sm shrink-0" style="background:#059669"></span>
+                <span class="flex-1 text-slate-600">Valid</span>
+                <span class="font-bold text-slate-800" x-text="stats.valid"></span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="h-2.5 w-2.5 rounded-sm shrink-0" style="background:#dc2626"></span>
+                <span class="flex-1 text-slate-600">Indikasi Fraud</span>
+                <span class="font-bold text-slate-800" x-text="stats.fraud"></span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="h-2.5 w-2.5 rounded-sm shrink-0" style="background:#2563eb"></span>
+                <span class="flex-1 text-slate-600">Belum Merespon</span>
+                <span class="font-bold text-slate-800" x-text="belumMerespon"></span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="h-2.5 w-2.5 rounded-sm shrink-0" style="background:#94a3b8"></span>
+                <span class="flex-1 text-slate-600">Belum Dikirim</span>
+                <span class="font-bold text-slate-800" x-text="stats.pending"></span>
+              </div>
+              <div class="flex items-center gap-2">
+                <span class="h-2.5 w-2.5 rounded-sm shrink-0" style="background:#f97316"></span>
+                <span class="flex-1 text-slate-600">Gagal Kirim</span>
+                <span class="font-bold text-slate-800" x-text="stats.gagal"></span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Penjelasan otomatisasi yang berjalan di server (teks deskriptif, bukan data) -->
+          <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 p-5 sm:p-6">
+            <div class="flex items-baseline justify-between gap-3">
+              <h3 class="text-base font-bold text-slate-900">Otomatisasi Sistem</h3>
+              <span class="text-xs text-slate-400">berjalan di server</span>
+            </div>
+            <ul class="mt-4 space-y-4">
+              <li class="flex gap-3">
+                <span class="h-2.5 w-2.5 rounded-full bg-red-500 shrink-0 mt-1.5"></span>
+                <div>
+                  <p class="text-sm font-semibold text-slate-800">Auto-Teguran</p>
+                  <p class="text-xs text-slate-500 leading-relaxed">Balasan "2" memicu pesan teguran otomatis ke nomor petugas terkait, bila nomornya tersedia.</p>
+                </div>
+              </li>
+              <li class="flex gap-3">
+                <span class="h-2.5 w-2.5 rounded-full bg-blue-600 shrink-0 mt-1.5"></span>
+                <div>
+                  <p class="text-sm font-semibold text-slate-800">Jeda Anti-Blokir</p>
+                  <p class="text-xs text-slate-500 leading-relaxed">Pengiriman massal diberi jeda acak antar pesan agar nomor gateway tidak diblokir WhatsApp.</p>
+                </div>
+              </li>
+              <li class="flex gap-3">
+                <span class="h-2.5 w-2.5 rounded-full bg-amber-500 shrink-0 mt-1.5"></span>
+                <div>
+                  <p class="text-sm font-semibold text-slate-800">Laporan Harian Terjadwal</p>
+                  <p class="text-xs text-slate-500 leading-relaxed">Ringkasan valid/fraud dikirim otomatis ke nomor pengawas setiap sore (zona waktu WITA).</p>
+                </div>
+              </li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Kolom kanan: tabel data verifikasi -->
+        <div id="tabel" class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 lg:col-span-2 overflow-hidden scroll-mt-24">
+          <div class="p-5 sm:p-6 border-b border-slate-100 space-y-4">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div>
+                <h3 class="text-base font-bold text-slate-900">Data Verifikasi Responden</h3>
+                <p class="text-sm text-slate-500">Diperbarui otomatis setiap 5 detik</p>
+              </div>
+              <!-- FITUR 1: Blast Terpilih -->
+              <button @click="blastSelected()"
+                      class="inline-flex items-center gap-2 rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-50 disabled:cursor-not-allowed transition shrink-0"
+                      :disabled="selected.length === 0">
+                <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" /></svg>
+                Blast Terpilih (<span x-text="selected.length"></span>)
+              </button>
+            </div>
+
+            <!-- TAB: Semua / Jalur Hijau (Valid) / Indikasi Fraud -->
+            <div class="flex items-center gap-2 flex-wrap">
+              <button @click="tab='semua'" class="rounded-lg px-3.5 py-1.5 text-sm font-semibold transition"
+                      :class="tab==='semua' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
+                Semua (<span x-text="rows.length"></span>)
+              </button>
+              <button @click="tab='hijau'" class="rounded-lg px-3.5 py-1.5 text-sm font-semibold transition"
+                      :class="tab==='hijau' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'">
+                Jalur Hijau (<span x-text="stats.valid"></span>)
+              </button>
+              <button @click="tab='fraud'" class="rounded-lg px-3.5 py-1.5 text-sm font-semibold transition"
+                      :class="tab==='fraud' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'">
+                Indikasi Fraud (<span x-text="stats.fraud"></span>)
+              </button>
+            </div>
+
+            <!-- FITUR 5: Pencarian + Filter Dropdown -->
+            <div class="flex flex-col sm:flex-row gap-3">
+              <div class="relative flex-1">
+                <input x-model="search" placeholder="Cari usaha / petugas / nomor…" aria-label="Cari responden"
+                       class="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+                <svg class="h-4 w-4 text-slate-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
+              </div>
+              <select x-model="filterStatus" aria-label="Saring berdasarkan status" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                <option value="">Semua Status</option>
+                <option value="VALID">Valid</option>
+                <option value="FRAUD">Indikasi Fraud</option>
+                <option value="TERKIRIM">Terkirim</option>
+                <option value="BELUM">Belum Merespon</option>
+                <option value="PENDING">Belum Dikirim</option>
+              </select>
+              <select x-model="filterPetugas" aria-label="Saring berdasarkan petugas" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                <option value="">Semua Petugas</option>
+                <template x-for="p in petugasList" :key="p"><option :value="p" x-text="p"></option></template>
+              </select>
+              <!-- MITIGASI ISU 2: saring berdasarkan ASAL DATA -->
+              <select x-model="filterSumber" aria-label="Saring berdasarkan sumber data" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
+                <option value="">Semua Sumber</option>
+                <option value="SQL_LAB">SQL Lab</option>
+                <option value="CAPI">CAPI</option>
+                <option value="MANUAL_PML">Manual PML</option>
+                <option value="LAINNYA">Lainnya</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- FITUR 4: overflow-x-auto agar aman di layar HP -->
+          <div class="overflow-x-auto thin-scroll">
+            <table class="w-full text-sm text-left whitespace-nowrap">
+              <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] tracking-wider">
+                <tr>
+                  <th class="px-4 py-3"><input type="checkbox" @change="toggleAll($event)" :checked="allChecked" aria-label="Pilih semua baris" class="rounded border-slate-300 text-blue-700 focus:ring-blue-500" /></th>
+                  <th class="px-5 py-3 font-semibold">Nama Usaha</th>
+                  <th class="px-5 py-3 font-semibold">No HP</th>
+                  <th class="px-5 py-3 font-semibold">Petugas</th>
+                  <th class="px-5 py-3 font-semibold">Sumber</th>
+                  <th class="px-5 py-3 font-semibold">Status</th>
+                  <th class="px-5 py-3 font-semibold">Waktu Balas</th>
+                  <th class="px-5 py-3 font-semibold">Aksi</th>
+                </tr>
+              </thead>
+              <tbody>
+                <template x-for="r in filtered" :key="r.id">
+                  <tr class="border-b border-slate-100 last:border-0 hover:bg-blue-50/50 transition-colors">
+                    <td class="px-4 py-3"><input type="checkbox" :value="String(r.id)" x-model="selected" :aria-label="'Pilih ' + r.nama_usaha" class="rounded border-slate-300 text-blue-700 focus:ring-blue-500" /></td>
+                    <td class="px-5 py-3 font-semibold text-slate-800" x-text="r.nama_usaha"></td>
+                    <!-- MITIGASI ISU 1: nomor tersamar; klik ikon mata untuk membuka (tercatat di audit) -->
+                    <td class="px-5 py-3 text-slate-600">
+                      <div class="flex items-center gap-1.5">
+                        <span class="font-mono text-xs" x-text="nomorTampil(r)"></span>
+                        <button x-show="!dibuka[r.id] && r.no_hp !== '[DIMUSNAHKAN]'" @click="bukaNomor(r.id)"
+                                title="Tampilkan nomor lengkap (akan dicatat di jejak audit)"
+                                aria-label="Tampilkan nomor lengkap"
+                                class="text-slate-400 hover:text-blue-700 transition">
+                          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        </button>
+                      </div>
+                    </td>
+                    <td class="px-5 py-3 text-slate-600" x-text="r.nama_petugas"></td>
+                    <td class="px-5 py-3">
+                      <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600" x-text="labelSumber(r.sumber_data)"></span>
+                    </td>
+                    <td class="px-5 py-3">
+                      <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" :class="badge(r.status)" x-text="label(r.status)"></span>
+                    </td>
+                    <td class="px-5 py-3 text-slate-500" x-text="r.waktu_balas || '—'"></td>
+                    <td class="px-5 py-3">
+                      <!-- FITUR 7: Validasi Manual + One-Click Copy (hanya baris Fraud) -->
+                      <template x-if="r.status === 'FRAUD'">
+                        <div class="flex items-center gap-2">
+                          <button @click="resolve(r.id)" class="text-xs font-semibold text-orange-700 border border-orange-300 bg-orange-50 rounded-lg px-2.5 py-1 hover:bg-orange-100 transition">Validasi Manual</button>
+                          <button @click="copyRejection(r)" title="Salin teks penolakan standar"
+                                  class="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg px-2.5 py-1 hover:bg-slate-50 transition">
+                            <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25" /></svg>
+                            Salin
+                          </button>
+                        </div>
+                      </template>
+                      <template x-if="r.status !== 'FRAUD'"><span class="text-slate-300">—</span></template>
+                    </td>
+                  </tr>
+                </template>
+                <tr x-show="filtered.length === 0">
+                  <td colspan="8" class="px-5 py-12 text-center text-slate-400">Tidak ada data yang cocok. Upload CSV / tambah responden, atau ubah filter.</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ MITIGASI ISU 1: JEJAK AUDIT (AUDIT TRAIL) — KHUSUS ADMIN ============ -->
+      <section id="audit" x-show="me.role === 'Admin'" class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 overflow-hidden scroll-mt-24">
+        <div class="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100">
+          <div>
+            <h3 class="text-base font-bold text-slate-900">Jejak Audit Akses Data</h3>
+            <p class="text-sm text-slate-500">Setiap akses dan pengolahan data rahasia tercatat otomatis.</p>
+          </div>
           <div class="flex items-center gap-2 flex-wrap">
-            <button @click="tab='semua'" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
-                    :class="tab==='semua' ? 'bg-blue-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'">
-              Semua (<span x-text="rows.length"></span>)
-            </button>
-            <button @click="tab='hijau'" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
-                    :class="tab==='hijau' ? 'bg-emerald-600 text-white' : 'bg-emerald-50 text-emerald-700 hover:bg-emerald-100'">
-              Jalur Hijau (<span x-text="stats.valid"></span>)
-            </button>
-            <button @click="tab='fraud'" class="rounded-lg px-3 py-1.5 text-sm font-semibold transition"
-                    :class="tab==='fraud' ? 'bg-red-600 text-white' : 'bg-red-50 text-red-700 hover:bg-red-100'">
-              Indikasi Fraud (<span x-text="stats.fraud"></span>)
-            </button>
-          </div>
-
-          <!-- FITUR 5: Pencarian + Filter Dropdown -->
-          <div class="flex flex-col sm:flex-row gap-3">
-            <div class="relative flex-1">
-              <input x-model="search" placeholder="Cari usaha / petugas / nomor…"
-                     class="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
-              <svg class="h-4 w-4 text-slate-400 absolute left-3 top-2.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" /></svg>
-            </div>
-            <select x-model="filterStatus" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-              <option value="">Semua Status</option>
-              <option value="VALID">Valid</option>
-              <option value="FRAUD">Indikasi Fraud</option>
-              <option value="TERKIRIM">Terkirim</option>
-              <option value="BELUM">Belum Merespon</option>
-              <option value="PENDING">Belum Dikirim</option>
-            </select>
-            <select x-model="filterPetugas" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-              <option value="">Semua Petugas</option>
-              <template x-for="p in petugasList" :key="p"><option :value="p" x-text="p"></option></template>
-            </select>
-            <!-- MITIGASI ISU 2: saring berdasarkan ASAL DATA -->
-            <select x-model="filterSumber" class="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-700 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none">
-              <option value="">Semua Sumber</option>
-              <option value="SQL_LAB">SQL Lab</option>
-              <option value="CAPI">CAPI</option>
-              <option value="MANUAL_PML">Manual PML</option>
-              <option value="LAINNYA">Lainnya</option>
-            </select>
+            <!-- Rekap asal data (MITIGASI ISU 2) -->
+            <template x-for="rk in rekapSumber" :key="rk.sumber">
+              <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
+                <span x-text="labelSumber(rk.sumber)"></span>
+                <span class="font-bold" x-text="rk.jumlah"></span>
+              </span>
+            </template>
+            <button @click="showAudit = !showAudit"
+                    class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
+                    x-text="showAudit ? 'Sembunyikan' : 'Tampilkan'"></button>
           </div>
         </div>
-
-        <!-- FITUR 4: overflow-x-auto agar aman di layar HP -->
-        <div class="overflow-x-auto thin-scroll">
+        <div x-show="showAudit" x-transition class="overflow-x-auto thin-scroll max-h-80">
           <table class="w-full text-sm text-left whitespace-nowrap">
-            <thead class="bg-slate-50 text-slate-500 uppercase text-xs tracking-wide">
+            <thead class="bg-slate-50 text-slate-500 uppercase text-[11px] tracking-wider sticky top-0">
               <tr>
-                <th class="px-4 py-3"><input type="checkbox" @change="toggleAll($event)" :checked="allChecked" class="rounded border-slate-300 text-blue-700 focus:ring-blue-500" /></th>
-                <th class="px-5 py-3 font-semibold">Nama Usaha</th>
-                <th class="px-5 py-3 font-semibold">No HP</th>
-                <th class="px-5 py-3 font-semibold">Petugas</th>
-                <th class="px-5 py-3 font-semibold">Sumber</th>
-                <th class="px-5 py-3 font-semibold">Status</th>
-                <th class="px-5 py-3 font-semibold">Waktu Balas</th>
+                <th class="px-5 py-3 font-semibold">Waktu</th>
+                <th class="px-5 py-3 font-semibold">Pengguna</th>
                 <th class="px-5 py-3 font-semibold">Aksi</th>
+                <th class="px-5 py-3 font-semibold">Keterangan</th>
+                <th class="px-5 py-3 font-semibold">Baris</th>
               </tr>
             </thead>
             <tbody>
-              <template x-for="r in filtered" :key="r.id">
-                <tr class="border-b border-slate-100 hover:bg-blue-50/50 transition-colors">
-                  <td class="px-4 py-3"><input type="checkbox" :value="String(r.id)" x-model="selected" class="rounded border-slate-300 text-blue-700 focus:ring-blue-500" /></td>
-                  <td class="px-5 py-3 font-medium text-slate-800" x-text="r.nama_usaha"></td>
-                  <!-- MITIGASI ISU 1: nomor tersamar; klik ikon mata untuk membuka (tercatat di audit) -->
-                  <td class="px-5 py-3 text-slate-600">
-                    <div class="flex items-center gap-1.5">
-                      <span class="font-mono" x-text="nomorTampil(r)"></span>
-                      <button x-show="!dibuka[r.id] && r.no_hp !== '[DIMUSNAHKAN]'" @click="bukaNomor(r.id)"
-                              title="Tampilkan nomor lengkap (akan dicatat di jejak audit)"
-                              class="text-slate-400 hover:text-blue-700 transition">
-                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M2.036 12.322a1.012 1.012 0 010-.639C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.431 0 .639C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.963-7.178z" /><path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                      </button>
-                    </div>
+              <template x-for="a in auditLog" :key="a.id">
+                <tr class="border-b border-slate-100 hover:bg-slate-50/70">
+                  <td class="px-5 py-2.5 text-slate-500 font-mono text-xs" x-text="a.created_at"></td>
+                  <td class="px-5 py-2.5 text-slate-700" x-text="a.user_email"></td>
+                  <td class="px-5 py-2.5">
+                    <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold" :class="badgeAksi(a.aksi)" x-text="a.aksi"></span>
                   </td>
-                  <td class="px-5 py-3 text-slate-600" x-text="r.nama_petugas"></td>
-                  <td class="px-5 py-3">
-                    <span class="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600" x-text="labelSumber(r.sumber_data)"></span>
-                  </td>
-                  <td class="px-5 py-3">
-                    <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold" :class="badge(r.status)" x-text="label(r.status)"></span>
-                  </td>
-                  <td class="px-5 py-3 text-slate-500" x-text="r.waktu_balas || '—'"></td>
-                  <td class="px-5 py-3">
-                    <!-- FITUR 7: Validasi Manual + One-Click Copy (hanya baris Fraud) -->
-                    <template x-if="r.status === 'FRAUD'">
-                      <div class="flex items-center gap-2">
-                        <button @click="resolve(r.id)" class="text-xs font-semibold text-orange-600 border border-orange-300 rounded-lg px-2.5 py-1 hover:bg-orange-50 transition">Validasi Manual</button>
-                        <button @click="copyRejection(r)" title="Salin teks penolakan standar"
-                                class="inline-flex items-center gap-1 text-xs font-semibold text-slate-600 border border-slate-300 rounded-lg px-2.5 py-1 hover:bg-slate-50 transition">
-                          <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.75a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25" /></svg>
-                          Salin
-                        </button>
-                      </div>
-                    </template>
-                    <template x-if="r.status !== 'FRAUD'"><span class="text-slate-300">—</span></template>
-                  </td>
+                  <td class="px-5 py-2.5 text-slate-500" x-text="a.detail"></td>
+                  <td class="px-5 py-2.5 text-slate-500" x-text="a.jumlah || '—'"></td>
                 </tr>
               </template>
-              <tr x-show="filtered.length === 0">
-                <td colspan="8" class="px-5 py-12 text-center text-slate-400">Tidak ada data yang cocok. Upload CSV / tambah responden, atau ubah filter.</td>
+              <tr x-show="auditLog.length === 0">
+                <td colspan="5" class="px-5 py-10 text-center text-slate-400">Belum ada aktivitas tercatat.</td>
               </tr>
             </tbody>
           </table>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ============ MITIGASI ISU 1: JEJAK AUDIT (AUDIT TRAIL) — KHUSUS ADMIN ============ -->
-    <section x-show="me.role === 'Admin'" class="bg-white rounded-xl shadow-md overflow-hidden">
-      <div class="p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100">
-        <div>
-          <h3 class="text-base font-bold text-slate-900">Jejak Audit Akses Data</h3>
-          <p class="text-sm text-slate-500">Setiap akses dan pengolahan data rahasia tercatat otomatis.</p>
-        </div>
-        <div class="flex items-center gap-2">
-          <!-- Rekap asal data (MITIGASI ISU 2) -->
-          <template x-for="rk in rekapSumber" :key="rk.sumber">
-            <span class="inline-flex items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-600">
-              <span x-text="labelSumber(rk.sumber)"></span>
-              <span class="font-bold" x-text="rk.jumlah"></span>
-            </span>
-          </template>
-          <button @click="showAudit = !showAudit"
-                  class="rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition"
-                  x-text="showAudit ? 'Sembunyikan' : 'Tampilkan'"></button>
-        </div>
-      </div>
-      <div x-show="showAudit" x-transition class="overflow-x-auto thin-scroll max-h-80">
-        <table class="w-full text-sm text-left whitespace-nowrap">
-          <thead class="bg-slate-50 text-slate-500 uppercase text-xs tracking-wide sticky top-0">
-            <tr>
-              <th class="px-5 py-3 font-semibold">Waktu</th>
-              <th class="px-5 py-3 font-semibold">Pengguna</th>
-              <th class="px-5 py-3 font-semibold">Aksi</th>
-              <th class="px-5 py-3 font-semibold">Keterangan</th>
-              <th class="px-5 py-3 font-semibold">Baris</th>
-            </tr>
-          </thead>
-          <tbody>
-            <template x-for="a in auditLog" :key="a.id">
-              <tr class="border-b border-slate-100 hover:bg-slate-50/70">
-                <td class="px-5 py-2.5 text-slate-500 font-mono text-xs" x-text="a.created_at"></td>
-                <td class="px-5 py-2.5 text-slate-700" x-text="a.user_email"></td>
-                <td class="px-5 py-2.5">
-                  <span class="inline-flex rounded-full px-2 py-0.5 text-xs font-semibold" :class="badgeAksi(a.aksi)" x-text="a.aksi"></span>
-                </td>
-                <td class="px-5 py-2.5 text-slate-500" x-text="a.detail"></td>
-                <td class="px-5 py-2.5 text-slate-500" x-text="a.jumlah || '—'"></td>
-              </tr>
-            </template>
-            <tr x-show="auditLog.length === 0">
-              <td colspan="5" class="px-5 py-10 text-center text-slate-400">Belum ada aktivitas tercatat.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
-
-    <footer class="text-center text-xs text-slate-400 pt-2 pb-6">
-      SWARA · Sistem WhatsApp Responsif & Akurat · Aktualisasi CPNS · BPS Kabupaten Karangasem © 2026
-    </footer>
-  </main>
+      <footer class="text-center text-xs text-slate-400 pt-2 pb-4">
+        SWARA · Sistem WhatsApp Responsif &amp; Akurat · Aktualisasi CPNS · BPS Kabupaten Karangasem © 2026
+      </footer>
+    </main>
+  </div>
 
   <!-- ============================ LOGIKA ALPINE ============================ -->
   <script>
@@ -678,8 +902,9 @@
       return {
         stats: { total: 0, terkirim: 0, valid: 0, fraud: 0, pending: 0, gagal: 0 },
         rows: [],
-        me: {},                 // info user login (navbar)
+        me: {},                 // info user login (topbar & rail)
         tab: 'semua',           // tab aktif: semua | hijau | fraud
+        sidebarBuka: false,     // rail navigasi versi mobile (off-canvas)
         // --- ISU 1 + ISU 4: survei/kegiatan & kontrol admin ---
         kegiatanList: [],       // daftar semua kegiatan
         kegiatanDipilih: '',    // id kegiatan yang sedang dilihat (Admin bisa ganti)
@@ -705,6 +930,7 @@
         filterPetugas: '',
         selected: [],           // id terpilih (checkbox) -> string
         waReady: false,
+        waPutus: false,         // true bila sesi pernah aktif lalu terputus (beda dari "belum pernah tersambung")
         hasQR: false,
         blasting: false,
         showForm: false,
@@ -715,9 +941,25 @@
         dlg: null,         // dialog aktif (konfirmasi / input); null = tertutup
         chart: null,
 
-        // Kegiatan yang sedang dilihat (untuk judul navbar) — ISU 1
+        // Kegiatan yang sedang dilihat (untuk judul topbar & rail) — ISU 1
         get kegiatanAktif() {
           return this.kegiatanList.find((k) => String(k.id) === String(this.kegiatanDipilih)) || null;
+        },
+
+        // Huruf awal untuk avatar (tanpa gambar/aset eksternal)
+        get inisial() {
+          const n = (this.me.nama || this.me.email || '?').trim();
+          return (n.charAt(0) || '?').toUpperCase();
+        },
+
+        // Response Rate DIHITUNG DI FRONTEND — backend tidak menyediakan field ini.
+        get responseRate() {
+          return Math.round(((this.stats.valid + this.stats.fraud) / (this.stats.terkirim || 1)) * 100);
+        },
+
+        // Sudah dikirimi pesan tetapi belum membalas (turunan dari stats, bukan field API)
+        get belumMerespon() {
+          return Math.max(0, this.stats.terkirim - this.stats.valid - this.stats.fraud);
         },
 
         // Daftar petugas unik (untuk dropdown filter) — FITUR 5
@@ -759,6 +1001,19 @@
           this.selected = e.target.checked ? this.filtered.map((r) => String(r.id)) : [];
         },
 
+        // --- Navigasi rail: tetap satu halaman; hanya mengubah tab / menggulir ---
+        gulirKe(id) {
+          this.sidebarBuka = false;
+          this.$nextTick(() => {
+            const el = document.getElementById(id);
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          });
+        },
+        pilihTab(t) {
+          this.tab = t;
+          this.gulirKe('tabel');
+        },
+
         init() {
           this.initChart();
           // Muat profil + daftar kegiatan lebih dulu, baru refresh data (ISU 1)
@@ -771,9 +1026,9 @@
           // FITUR 6: Socket.io untuk QR & status real-time
           try {
             const socket = io();
-            socket.on('wa-qr', (qr) => { this.waReady = false; this.$nextTick(() => this.renderQR(qr)); });
-            socket.on('wa-ready', () => { this.waReady = true; this.hasQR = false; this.toast('WhatsApp Gateway aktif', 'sukses', 'Siap mengirim pesan verifikasi.'); });
-            socket.on('wa-disconnected', () => { this.waReady = false; this.toast('WhatsApp Gateway terputus', 'gagal', 'Pindai ulang QR untuk menyambungkan.'); });
+            socket.on('wa-qr', (qr) => { this.waReady = false; this.waPutus = false; this.$nextTick(() => this.renderQR(qr)); });
+            socket.on('wa-ready', () => { this.waReady = true; this.waPutus = false; this.hasQR = false; this.toast('WhatsApp Gateway aktif', 'sukses', 'Siap mengirim pesan verifikasi.'); });
+            socket.on('wa-disconnected', () => { this.waReady = false; this.waPutus = true; this.toast('WhatsApp Gateway terputus', 'gagal', 'Pindai ulang QR untuk menyambungkan.'); });
 
             // ---- NOTIFIKASI REAL-TIME: balasan responden masuk seketika ----
             socket.on('balasan-baru', (d) => {
@@ -805,6 +1060,7 @@
             this.stats = await rs.json();
             this.rows = await fetch(this.qk('/api/responden')).then((r) => r.json());
             this.waReady = (await fetch('/api/wa-status').then((r) => r.json())).ready;
+            if (this.waReady) this.waPutus = false;   // sinkronkan penanda "terputus"
             this.rekapSumber = await fetch('/api/rekap-sumber').then((r) => r.json());
             // Jejak audit hanya untuk Admin (endpoint balas 403 bagi PML)
             if (this.me.role === 'Admin') {
@@ -1321,22 +1577,23 @@
         },
 
         // --- Chart ------------------------------------------------------------
+        // Legenda bawaan Chart.js dimatikan: diganti legenda kustom di HTML yang
+        // juga menampilkan angka (legenda bawaan hanya menampilkan label).
         initChart() {
           const ctx = document.getElementById('chartRespons');
           this.chart = new Chart(ctx, {
             type: 'doughnut',
             data: {
-              labels: ['Valid', 'Indikasi Fraud', 'Belum Merespon', 'Belum Terkirim', 'Gagal'],
+              labels: ['Valid', 'Indikasi Fraud', 'Belum Merespon', 'Belum Dikirim', 'Gagal'],
               datasets: [{ data: [0, 0, 0, 0, 0], backgroundColor: ['#059669', '#dc2626', '#2563eb', '#94a3b8', '#f97316'], borderWidth: 2, borderColor: '#ffffff' }],
             },
-            options: { responsive: true, maintainAspectRatio: false, cutout: '62%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 14, font: { size: 12 } } } } },
+            options: { responsive: true, maintainAspectRatio: false, cutout: '70%', plugins: { legend: { display: false } } },
           });
         },
         updateChart() {
           if (!this.chart) return;
           const s = this.stats;
-          const belumMerespon = Math.max(0, s.terkirim - s.valid - s.fraud);
-          this.chart.data.datasets[0].data = [s.valid, s.fraud, belumMerespon, s.pending, s.gagal];
+          this.chart.data.datasets[0].data = [s.valid, s.fraud, this.belumMerespon, s.pending, s.gagal];
           this.chart.update('none');
         },
       };
