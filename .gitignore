@@ -3,9 +3,15 @@ node_modules/
 .wwebjs_cache/
 data/*.sqlite
 data/*.sqlite-*
+# Cadangan basis data: memuat data responden asli, JANGAN pernah masuk repo
+data/backup/
+# Log runtime dari start-swara.bat
+data/*.log
 uploads/*
 !uploads/.gitkeep
 
 # Kredensial rahasia
+# CATATAN: hanya .env yang dirahasiakan. .env.example WAJIB ikut ter-commit —
+# isinya hanya nilai contoh, dan tanpa berkas itu pemasangan di komputer baru
+# tidak punya acuan (server menolak start bila SESSION_SECRET belum diisi).
 .env
-.env.example

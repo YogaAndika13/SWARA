@@ -7,8 +7,9 @@
  * library eksternal. Tujuannya agar TIDAK perlu kompilasi (node-gyp/Python/
  * Visual Studio Build Tools) -> cocok untuk PC kantor tanpa tools tambahan.
  *
- * Syarat: Node.js versi 22.5+ (idealnya Node 24, di mana `node:sqlite` sudah
- * aktif tanpa flag tambahan). Cek versi Anda: `node -v`.
+ * Syarat: Node.js versi 22.13+ (idealnya Node 24), di mana `node:sqlite` aktif
+ * tanpa flag tambahan. Angka ini harus sama dengan "engines" di package.json.
+ * Cek versi Anda: `node -v`.
  *
  * API `node:sqlite` mirip better-sqlite3: prepare().run()/.get()/.all().
  * Di sini semua parameter memakai placeholder posisi ( ? ) agar sederhana.
@@ -124,6 +125,10 @@ if (!_punyaKolomUser('pakta_versi')) db.exec(`ALTER TABLE users ADD COLUMN pakta
 if (!_punyaKolomUser('reset_expires_ms')) db.exec(`ALTER TABLE users ADD COLUMN reset_expires_ms INTEGER`);
 // ISU 4 (RBAC): kaitkan PML ke kegiatan yang ditugaskan
 if (!_punyaKolomUser('id_kegiatan')) db.exec(`ALTER TABLE users ADD COLUMN id_kegiatan INTEGER`);
+// Paksa ganti password: akun admin bawaan memakai password yang tercetak di
+// konsol & dokumentasi, sehingga siapa pun yang pernah membacanya bisa masuk.
+// Nilai 1 = wajib mengganti password sebelum boleh memakai dashboard.
+if (!_punyaKolomUser('harus_ganti_password')) db.exec(`ALTER TABLE users ADD COLUMN harus_ganti_password INTEGER DEFAULT 0`);
 
 // MITIGASI ISU 1: AUDIT TRAIL — mencatat setiap akses/aksi terhadap data rahasia.
 // Inilah bukti akuntabilitas: siapa, kapan, melakukan apa, atas berapa baris data.
@@ -315,6 +320,20 @@ function createKegiatan({ kode, nama }) {
 }
 const resetAll          = () => stmtResetAll.run();
 const resetOne          = (id) => stmtResetOne.run(id);
+
+// ISU 3 — reset ter-scope. Versi tanpa scope di atas MENGHAPUS hasil verifikasi
+// (VALID/FRAUD) seluruh tabel lintas kegiatan & lintas PML; jangan dipakai di route.
+const _SQL_RESET = `status='PENDING', balasan=NULL, waktu_kirim=NULL, waktu_balas=NULL`;
+function resetAllScoped(scope) {
+  const { where, p } = _scopeSQL(scope);
+  return db.prepare(`UPDATE responden SET ${_SQL_RESET} WHERE ${where}`).run(p);
+}
+// Reset satu baris + penjaga kepemilikan: bila id bukan milik pemanggil,
+// tidak ada baris yang cocok sehingga changes = 0 (bukan error).
+function resetOneScoped(id, scope) {
+  const { where, p } = _scopeSQL(scope, { id: Number(id) });
+  return db.prepare(`UPDATE responden SET ${_SQL_RESET} WHERE id = @id AND ${where}`).run(p);
+}
 const resolveManual     = (id) => stmtResolve.run(id);
 const getStats          = () => stmtStats.get();
 
@@ -418,6 +437,14 @@ function logAudit({ user_email, aksi, detail = '', jumlah = 0, ip = '' }) {
 const stmtAuditList = db.prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT ?`);
 const getAuditLog = (limit = 100) => stmtAuditList.all(Number(limit) || 100);
 
+/** Tandai sebuah akun wajib mengganti password sebelum memakai dashboard. */
+const tandaiHarusGantiPassword = (userId) =>
+  db.prepare(`UPDATE users SET harus_ganti_password = 1 WHERE id = ?`).run(Number(userId));
+
+/** Simpan password baru sekaligus mencabut kewajiban ganti password. */
+const gantiPasswordSelesai = (userId, hash) =>
+  db.prepare(`UPDATE users SET password = ?, harus_ganti_password = 0 WHERE id = ?`).run(String(hash), Number(userId));
+
 /** PAKTA INTEGRITAS: tandai pengguna telah menyetujui pernyataan kerahasiaan. */
 const stmtPakta = db.prepare(`UPDATE users SET pakta_at = datetime('now','localtime'), pakta_versi = ? WHERE id = ?`);
 const acceptPakta = (userId, versi) => stmtPakta.run(String(versi), userId);
@@ -441,6 +468,25 @@ function purgeNomorLama(hari = 30) {
   return Number(info.changes || 0);
 }
 
+// ISU 3 — versi ter-scope. Pemusnahan hanya menyentuh kegiatan yang sedang aktif
+// (dan, bila pemanggilnya PML, hanya barisnya sendiri). Versi tanpa scope di atas
+// mengenai SELURUH tabel lintas kegiatan, jadi JANGAN dipanggil dari route mana pun.
+function purgeNomorLamaScoped(hari = 30, scope = {}) {
+  const n = Number(hari);
+  const hariBersih = Number.isFinite(n) && n >= 0 ? Math.floor(n) : 30;
+  const { where, p } = _scopeSQL(scope, { batas: `-${hariBersih} days` });
+  const info = db.prepare(`
+    UPDATE responden
+    SET no_hp = '', wa_id = '', no_hp_petugas = '', anonim_at = datetime('now','localtime')
+    WHERE anonim_at IS NULL
+      AND status IN ('VALID','VALID_MANUAL','FRAUD','GAGAL')
+      AND waktu_balas IS NOT NULL
+      AND date(waktu_balas) <= date('now','localtime', @batas)
+      AND ${where}
+  `).run(p);
+  return Number(info.changes || 0);
+}
+
 // =============================================================================
 // MITIGASI ISU 2 — SUMBER DATA BERAGAM & VERIFIKASI BERBASIS SAMPEL
 // =============================================================================
@@ -451,11 +497,31 @@ const stmtRekapSumber = db.prepare(
 );
 const getRekapSumber = () => stmtRekapSumber.all();
 
+// ISU 3 — rekap hanya untuk kegiatan aktif (PML: hanya barisnya sendiri).
+function getRekapSumberScoped(scope) {
+  const { where, p } = _scopeSQL(scope);
+  return db.prepare(`
+    SELECT IFNULL(sumber_data,'MANUAL_PML') AS sumber, COUNT(*) AS jumlah
+    FROM responden WHERE ${where}
+    GROUP BY sumber ORDER BY jumlah DESC`).all(p);
+}
+
 /** SAMPLING ACAK: pilih N responden berstatus PENDING secara acak.
  *  Dipakai bila kerangka data lengkap tidak tersedia — efek jera tetap bekerja
  *  karena petugas tidak tahu kunjungan mana yang akan diverifikasi. */
 const stmtSample = db.prepare(`SELECT id FROM responden WHERE status='PENDING' ORDER BY RANDOM() LIMIT ?`);
 const getSampleIds = (n = 10) => stmtSample.all(Number(n) || 10).map((r) => r.id);
+
+// ISU 3 — sampel diambil HANYA dari data milik pemanggil pada kegiatan aktif,
+// supaya seorang PML tidak pernah menerima id milik PML lain.
+function getSampleIdsScoped(n = 10, scope = {}) {
+  const jumlah = Math.max(1, Math.min(1000, Math.floor(Number(n) || 10)));
+  const { where, p } = _scopeSQL(scope, { jumlah });
+  return db.prepare(`
+    SELECT id FROM responden
+    WHERE status='PENDING' AND ${where}
+    ORDER BY RANDOM() LIMIT @jumlah`).all(p).map((r) => r.id);
+}
 
 module.exports = {
   db,
@@ -471,6 +537,10 @@ module.exports = {
   logAudit,
   getAuditLog,
   acceptPakta,
+  tandaiHarusGantiPassword, gantiPasswordSelesai,
+  // ISU 3 — pasangan ter-scope; inilah yang WAJIB dipakai dari route handler.
+  purgeNomorLamaScoped, getRekapSumberScoped, getSampleIdsScoped,
+  resetAllScoped, resetOneScoped,
   purgeNomorLama,
   getRekapSumber,
   getSampleIds,
