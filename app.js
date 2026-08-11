@@ -268,21 +268,25 @@ app.get('/api/reveal/:id', (req, res) => {
 // Jejak audit = alat pengawasan -> KHUSUS Admin (Bug: PML tak boleh lihat)
 app.get('/api/audit-log', requireRole('Admin'), (req, res) => res.json(db.getAuditLog(req.query.limit || 100)));
 
-// MITIGASI ISU 2: rekap provenance (asal-usul) data
-app.get('/api/rekap-sumber', (req, res) => res.json(db.getRekapSumber()));
+// MITIGASI ISU 2: rekap provenance (asal-usul) data — ISU 3: ikut scope pemanggil
+app.get('/api/rekap-sumber', (req, res) => res.json(db.getRekapSumberScoped(req.scope)));
 
 // MITIGASI ISU 2: pilih sampel acak dari data PENDING (bila kerangka tak lengkap)
+// ISU 3: sampel diambil hanya dari data milik pemanggil pada kegiatan aktif.
 app.post('/api/sample', (req, res) => {
   const n = Number(req.body && req.body.jumlah) || 10;
-  const ids = db.getSampleIds(n);
+  const ids = db.getSampleIdsScoped(n, req.scope);
   db.logAudit({ ...jejak(req), aksi: 'PILIH_SAMPEL', detail: `sampel acak ${ids.length} baris`, jumlah: ids.length });
   res.json({ ok: true, ids, jumlah: ids.length });
 });
 
-// MITIGASI ISU 1: pemusnahan nomor sesuai kebijakan retensi
-app.post('/api/purge', (req, res) => {
+// MITIGASI ISU 1: pemusnahan nomor sesuai kebijakan retensi.
+// KHUSUS ADMIN: tindakan ini permanen. Sebelumnya endpoint ini tidak memeriksa
+// peran sama sekali — hanya tombolnya yang disembunyikan di UI — sehingga PML mana
+// pun bisa memanggilnya langsung. ISU 3: kini juga dibatasi ke kegiatan aktif.
+app.post('/api/purge', requireRole('Admin'), (req, res) => {
   const hari = req.body && req.body.hari !== undefined ? Number(req.body.hari) : 30;
-  const n = db.purgeNomorLama(hari);
+  const n = db.purgeNomorLamaScoped(hari, req.scope);
   db.logAudit({ ...jejak(req), aksi: 'MUSNAHKAN_NOMOR', detail: `retensi ${hari} hari`, jumlah: n });
   res.json({ ok: true, jumlah: n, message: `${n} nomor telah dimusnahkan (retensi ${hari} hari).` });
 });
@@ -416,10 +420,23 @@ app.post('/api/blast', (req, res) => {
 // Mengembalikan responden ke status PENDING agar bisa di-blast lagi.
 // Body opsional { id: <number> } untuk reset satu baris; tanpa id = reset semua.
 // -----------------------------------------------------------------------------
+// ISU 3: reset dibatasi ke kegiatan aktif (dan, bagi PML, ke barisnya sendiri).
+// Sebelumnya `id` dipakai apa adanya dari body tanpa penjaga kepemilikan, sehingga
+// satu PML bisa menghapus hasil verifikasi milik PML lain — atau seluruh tabel.
+// Aksi ini destruktif (VALID/FRAUD hilang) maka sekarang ikut dicatat di jejak audit.
 app.post('/api/reset', (req, res) => {
   const { id } = req.body || {};
-  const info = id ? db.resetOne(id) : db.resetAll();
+  if (id !== undefined && !Number.isFinite(Number(id))) {
+    return res.status(400).json({ error: 'Parameter id tidak valid.' });
+  }
+  const info = id !== undefined ? db.resetOneScoped(id, req.scope) : db.resetAllScoped(req.scope);
   const n = Number(info.changes || 0);
+  db.logAudit({
+    ...jejak(req),
+    aksi: 'RESET_STATUS',
+    detail: id !== undefined ? `reset 1 responden (id ${Number(id)})` : 'reset seluruh responden dalam kegiatan',
+    jumlah: n,
+  });
   console.log(`[RESET] ${n} responden dikembalikan ke status PENDING.`);
   res.json({ ok: true, changes: n });
 });
@@ -500,8 +517,12 @@ app.get('/api/export-report', (req, res) => {
   // MITIGASI ISU 1:
   //  (a) Default ekspor TER-MASKING. Nomor penuh hanya bila ?penuh=1 (tercatat di audit).
   //  (b) WATERMARK: identitas pengunduh + waktu ditanam di file, agar kebocoran terlacak.
+  //  (c) ISU 3: ekspor WAJIB ter-scope. Sebelumnya memakai db.getAll() tanpa filter,
+  //      sehingga PML mana pun bisa mengunduh SELURUH data lintas kegiatan & lintas
+  //      PML — dan dengan ?penuh=1 ikut mendapat nomor asli yang tidak tersamar.
+  //      Admin tetap memperoleh seluruh baris pada kegiatan aktif (pml_id = null).
   const penuh = req.query.penuh === '1';
-  const rows = db.getAll();
+  const rows = db.getAllScoped(req.scope);
   const j = jejak(req);
 
   const watermark =

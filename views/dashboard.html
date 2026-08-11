@@ -549,7 +549,7 @@
             </a>
 
             <!-- FITUR 2 + MITIGASI ISU 1: Ekspor (default nomor TERSAMAR + watermark) -->
-            <a href="/api/export-report" @click="catatEkspor()"
+            <a :href="qk('/api/export-report')" @click="catatEkspor()"
                class="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition">
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" /></svg>
               Ekspor
@@ -1061,7 +1061,7 @@
             this.rows = await fetch(this.qk('/api/responden')).then((r) => r.json());
             this.waReady = (await fetch('/api/wa-status').then((r) => r.json())).ready;
             if (this.waReady) this.waPutus = false;   // sinkronkan penanda "terputus"
-            this.rekapSumber = await fetch('/api/rekap-sumber').then((r) => r.json());
+            this.rekapSumber = await fetch(this.qk('/api/rekap-sumber')).then((r) => r.json()); // ISU 3: ikut kegiatan terpilih
             // Jejak audit hanya untuk Admin (endpoint balas 403 bagi PML)
             if (this.me.role === 'Admin') {
               this.auditLog = await fetch('/api/audit-log?limit=100').then((r) => r.json());
@@ -1181,7 +1181,11 @@
           });
           if (!ok) return;
           try {
-            const res = await fetch('/api/reset', { method: 'POST' }).then((r) => r.json());
+            // ISU 3: sertakan id_kegiatan agar reset hanya mengenai kegiatan yang sedang dilihat
+            const res = await fetch('/api/reset', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(this.bodyK()),
+            }).then((r) => r.json());
             this.toast(`${res.changes} data direset ke "Menunggu". Silakan Blast lagi.`);
             this.refresh();
           } catch (e) { this.toast('Gagal reset: ' + e.message, 'error'); }
@@ -1371,7 +1375,7 @@
           try {
             const j = await fetch('/api/purge', {
               method: 'POST', headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ hari }),
+              body: JSON.stringify(this.bodyK({ hari })), // ISU 3: batasi ke kegiatan aktif
             }).then((r) => r.json());
             this.toast(j.message || 'Selesai.');
             this.dibuka = {};
