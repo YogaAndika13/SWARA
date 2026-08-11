@@ -124,6 +124,10 @@ if (!_punyaKolomUser('pakta_versi')) db.exec(`ALTER TABLE users ADD COLUMN pakta
 if (!_punyaKolomUser('reset_expires_ms')) db.exec(`ALTER TABLE users ADD COLUMN reset_expires_ms INTEGER`);
 // ISU 4 (RBAC): kaitkan PML ke kegiatan yang ditugaskan
 if (!_punyaKolomUser('id_kegiatan')) db.exec(`ALTER TABLE users ADD COLUMN id_kegiatan INTEGER`);
+// Paksa ganti password: akun admin bawaan memakai password yang tercetak di
+// konsol & dokumentasi, sehingga siapa pun yang pernah membacanya bisa masuk.
+// Nilai 1 = wajib mengganti password sebelum boleh memakai dashboard.
+if (!_punyaKolomUser('harus_ganti_password')) db.exec(`ALTER TABLE users ADD COLUMN harus_ganti_password INTEGER DEFAULT 0`);
 
 // MITIGASI ISU 1: AUDIT TRAIL — mencatat setiap akses/aksi terhadap data rahasia.
 // Inilah bukti akuntabilitas: siapa, kapan, melakukan apa, atas berapa baris data.
@@ -432,6 +436,14 @@ function logAudit({ user_email, aksi, detail = '', jumlah = 0, ip = '' }) {
 const stmtAuditList = db.prepare(`SELECT * FROM audit_log ORDER BY id DESC LIMIT ?`);
 const getAuditLog = (limit = 100) => stmtAuditList.all(Number(limit) || 100);
 
+/** Tandai sebuah akun wajib mengganti password sebelum memakai dashboard. */
+const tandaiHarusGantiPassword = (userId) =>
+  db.prepare(`UPDATE users SET harus_ganti_password = 1 WHERE id = ?`).run(Number(userId));
+
+/** Simpan password baru sekaligus mencabut kewajiban ganti password. */
+const gantiPasswordSelesai = (userId, hash) =>
+  db.prepare(`UPDATE users SET password = ?, harus_ganti_password = 0 WHERE id = ?`).run(String(hash), Number(userId));
+
 /** PAKTA INTEGRITAS: tandai pengguna telah menyetujui pernyataan kerahasiaan. */
 const stmtPakta = db.prepare(`UPDATE users SET pakta_at = datetime('now','localtime'), pakta_versi = ? WHERE id = ?`);
 const acceptPakta = (userId, versi) => stmtPakta.run(String(versi), userId);
@@ -524,6 +536,7 @@ module.exports = {
   logAudit,
   getAuditLog,
   acceptPakta,
+  tandaiHarusGantiPassword, gantiPasswordSelesai,
   // ISU 3 — pasangan ter-scope; inilah yang WAJIB dipakai dari route handler.
   purgeNomorLamaScoped, getRekapSumberScoped, getSampleIdsScoped,
   resetAllScoped, resetOneScoped,

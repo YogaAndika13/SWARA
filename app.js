@@ -67,7 +67,13 @@ try {
       email: 'admin@bps.go.id',
       password: bcrypt.hashSync('bps12345', 10),
     });
+    // Password bawaan ini tercetak di konsol dan tertulis di dokumentasi, jadi
+    // harus dianggap sudah bocor sejak awal. Akun ditandai wajib ganti password
+    // pada login pertama supaya nilai bawaannya tidak pernah dipakai permanen.
+    const _admin = db.findUserByEmail('admin@bps.go.id');
+    if (_admin) db.tandaiHarusGantiPassword(_admin.id);
     console.log('[SEED] Akun default dibuat -> email: admin@bps.go.id | password: bps12345');
+    console.log('[SEED] Password ini WAJIB diganti saat login pertama.');
   }
 } catch (e) {
   console.error('[SEED] Dilewati:', e.message);
@@ -184,7 +190,9 @@ app.post('/api/pakta', (req, res) => {
 // Gerbang: semua endpoint data DI BAWAH baris ini butuh pakta yang sudah disetujui.
 // Dikecualikan: /api/me, /api/pakta, /api/wa-status (tidak memuat data rahasia).
 app.use('/api', (req, res, next) => {
-  const bebas = ['/me', '/pakta', '/wa-status'];
+  // '/ganti-password' ikut dibebaskan: mengganti password sendiri bukan akses
+  // data rahasia, dan bila digerbang pakta maka alurnya bisa saling mengunci.
+  const bebas = ['/me', '/pakta', '/wa-status', '/ganti-password'];
   if (bebas.includes(req.path)) return next();
   const u = req.user || {};
   if (u.pakta_versi !== PAKTA_VERSI) {
@@ -200,7 +208,43 @@ app.use('/api', (req, res, next) => {
 app.get('/api/me', (req, res) => {
   const u = req.user || {};
   // ISU 1+4: kirim role & kegiatan aktif agar dashboard menyesuaikan tampilan
-  res.json({ nama: u.nama, email: u.email, role: u.role || 'PML', scope: req.scope });
+  res.json({
+    nama: u.nama, email: u.email, role: u.role || 'PML', scope: req.scope,
+    // Dashboard memakai penanda ini untuk memblokir tampilan sampai password diganti
+    harus_ganti_password: !!u.harus_ganti_password,
+  });
+});
+
+// Ganti password sendiri. Dipakai untuk mencabut password bawaan akun admin
+// (bps12345) yang tercetak di konsol/dokumentasi sehingga harus dianggap bocor.
+app.post('/api/ganti-password', (req, res) => {
+  const bcrypt = require('bcryptjs');
+  const u = req.user || {};
+  const { password_lama, password_baru } = req.body || {};
+
+  if (!password_lama || !password_baru) {
+    return res.status(400).json({ error: 'Password lama dan baru wajib diisi.' });
+  }
+  if (String(password_baru).length < 8) {
+    return res.status(400).json({ error: 'Password baru minimal 8 karakter.' });
+  }
+  if (String(password_baru) === String(password_lama)) {
+    return res.status(400).json({ error: 'Password baru harus berbeda dari password lama.' });
+  }
+  // Tolak nilai bawaan agar kewajiban ganti password tidak bisa "diakali"
+  if (['bps12345', 'admin', 'password', '12345678'].includes(String(password_baru).toLowerCase())) {
+    return res.status(400).json({ error: 'Password terlalu mudah ditebak. Gunakan kombinasi lain.' });
+  }
+
+  const akun = db.findUserByEmail(u.email);
+  if (!akun || !akun.password || !bcrypt.compareSync(String(password_lama), akun.password)) {
+    return res.status(401).json({ error: 'Password lama tidak cocok.' });
+  }
+
+  db.gantiPasswordSelesai(akun.id, bcrypt.hashSync(String(password_baru), 10));
+  if (req.user) req.user.harus_ganti_password = 0; // segarkan sesi berjalan
+  db.logAudit({ ...jejak(req), aksi: 'GANTI_PASSWORD', detail: 'ganti password mandiri' });
+  res.json({ ok: true, message: 'Password berhasil diganti.' });
 });
 
 // ISU 1: daftar kegiatan untuk pemilih di dashboard.

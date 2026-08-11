@@ -163,6 +163,61 @@
     </div>
   </div>
 
+  <!-- ============ WAJIB GANTI PASSWORD BAWAAN ============ -->
+  <!-- Muncul di atas modal Pakta (z lebih tinggi): password bawaan akun admin
+       tercetak di konsol & dokumentasi, jadi harus dicabut sebelum apa pun. -->
+  <div x-show="me.harus_ganti_password" x-cloak
+       class="fixed inset-0 z-[58] flex items-center justify-center bg-slate-900/70 px-4">
+    <div class="bg-white rounded-xl shadow-xl max-w-md w-full p-6 sm:p-8">
+      <div class="flex items-start gap-3 mb-4">
+        <div class="h-11 w-11 rounded-xl bg-red-50 flex items-center justify-center shrink-0">
+          <svg class="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke-width="1.8" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="M15.75 5.25a3 3 0 013 3m3 0a6 6 0 01-7.029 5.912c-.563-.097-1.159.026-1.563.43L10.5 17.25H8.25v2.25H6v2.25H2.25v-2.818c0-.597.237-1.17.659-1.591l6.499-6.499c.404-.404.527-1 .43-1.563A6 6 0 1121.75 8.25z" /></svg>
+        </div>
+        <div>
+          <h2 class="text-lg font-bold text-slate-900">Ganti Password Bawaan</h2>
+          <p class="text-sm text-slate-500">Wajib dilakukan sebelum memakai dashboard.</p>
+        </div>
+      </div>
+
+      <div class="rounded-lg bg-amber-50 ring-1 ring-amber-200 px-4 py-3 text-sm text-amber-800 leading-relaxed mb-5">
+        Akun ini masih memakai password bawaan yang tercetak di konsol server dan
+        tertulis di dokumentasi. Siapa pun yang pernah membacanya dapat masuk sebagai
+        Admin. Tetapkan password baru sekarang.
+      </div>
+
+      <div class="space-y-3">
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1.5">Password lama</label>
+          <input type="password" x-model="formGantiPw.lama" autocomplete="current-password"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1.5">
+            Password baru <span class="text-slate-400 font-normal">(min. 8 karakter)</span>
+          </label>
+          <input type="password" x-model="formGantiPw.baru" autocomplete="new-password"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+        </div>
+        <div>
+          <label class="block text-sm font-medium text-slate-700 mb-1.5">Ulangi password baru</label>
+          <input type="password" x-model="formGantiPw.ulangi" autocomplete="new-password"
+                 @keydown.enter="gantiPassword()"
+                 class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none" />
+        </div>
+      </div>
+
+      <p x-show="gantiPwGalat" class="mt-3 text-sm font-medium text-red-600" x-text="gantiPwGalat"></p>
+
+      <div class="flex items-center justify-between gap-3 mt-6">
+        <button @click="logout()" class="text-sm font-semibold text-slate-500 hover:text-slate-700 transition">Keluar</button>
+        <button @click="gantiPassword()"
+                class="rounded-lg bg-blue-700 px-5 py-2.5 text-sm font-bold text-white hover:bg-blue-800 transition">
+          Simpan Password Baru
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- ============ ISU 1 + ISU 4: MODAL KELOLA SURVEI (khusus Admin) ============ -->
   <div x-show="showKegiatan" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4"
        @keydown.escape.window="showKegiatan = false">
@@ -919,6 +974,8 @@
         paktaOK: true,          // true dulu agar modal tak berkedip saat memuat
         paktaCentang: false,
         paktaVersi: '1.0',
+        formGantiPw: { lama: '', baru: '', ulangi: '' }, // modal wajib ganti password bawaan
+        gantiPwGalat: '',
         dibuka: {},             // { id: nomorLengkap } hasil aksi "buka nomor"
         auditLog: [],
         showAudit: false,
@@ -1289,6 +1346,26 @@
             this.kegiatanList = await fetch('/api/kegiatan').then((r) => r.json());
             this.toast('Survei "' + nama + '" ditambahkan', 'sukses');
           } catch (e) { this.kegiatanGalat = 'Gagal: ' + e.message; }
+        },
+
+        // Cabut password bawaan. Selama belum berhasil, modal tetap memblokir.
+        async gantiPassword() {
+          this.gantiPwGalat = '';
+          const { lama, baru, ulangi } = this.formGantiPw;
+          if (!lama || !baru) { this.gantiPwGalat = 'Password lama dan baru wajib diisi.'; return; }
+          if (baru.length < 8) { this.gantiPwGalat = 'Password baru minimal 8 karakter.'; return; }
+          if (baru !== ulangi) { this.gantiPwGalat = 'Ulangan password tidak sama.'; return; }
+          try {
+            const res = await fetch('/api/ganti-password', {
+              method: 'POST', headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ password_lama: lama, password_baru: baru }),
+            });
+            const j = await res.json();
+            if (!res.ok) { this.gantiPwGalat = j.error || 'Gagal mengganti password.'; return; }
+            this.me = { ...this.me, harus_ganti_password: false };
+            this.formGantiPw = { lama: '', baru: '', ulangi: '' };
+            this.toast('Password berhasil diganti.', 'sukses', 'Gunakan password baru pada login berikutnya.');
+          } catch (e) { this.gantiPwGalat = 'Gagal: ' + e.message; }
         },
 
         async cekPakta() {
