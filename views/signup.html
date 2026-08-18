@@ -11,6 +11,16 @@
   <style>
     body { font-family: 'Inter', sans-serif; }
     .bg-rail { background-color: #0f1c33; }
+    /* ============================ AKSESIBILITAS ============================ */
+    /* A11Y-1 — indikator fokus keyboard yang jelas pada SEMUA elemen interaktif
+       (sebelumnya hanya kolom isian yang punya cincin fokus). */
+    :focus-visible { outline: 3px solid #1d4ed8; outline-offset: 2px; border-radius: 6px; }
+    /* A11Y-2 — placeholder dinaikkan kontrasnya agar >= 4.5:1 (WCAG 1.4.3). */
+    ::placeholder { color: #64748b; opacity: 1; }
+    /* A11Y-3 — hormati preferensi "kurangi gerakan" (WCAG 2.3.3). */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { transition-duration: 0.001ms !important; animation-duration: 0.001ms !important; }
+    }
   </style>
 </head>
 <body class="bg-slate-100 text-slate-800 antialiased">
@@ -21,17 +31,17 @@
         <div class="h-12 w-12 rounded-xl bg-white flex items-center justify-center font-extrabold text-blue-800 tracking-tight shrink-0">BPS</div>
         <div class="leading-tight">
           <p class="text-white font-bold text-lg">SWARA</p>
-          <p class="text-[11px] text-slate-400">Sistem WhatsApp Responsif &amp; Akurat</p>
+          <p class="text-[11px] text-slate-300">Sistem WhatsApp Responsif &amp; Akurat</p>
         </div>
       </div>
       <div class="hidden lg:block max-w-md">
         <h2 class="text-2xl font-bold text-white leading-snug">Registrasi Akun</h2>
-        <p class="mt-3 text-sm text-slate-400 leading-relaxed">
+        <p class="mt-3 text-sm text-slate-300 leading-relaxed">
           Pendaftaran mandiri hanya aktif bila diizinkan Admin. Dalam pemakaian normal,
           akun PML dibuatkan oleh Admin melalui menu Kelola PML.
         </p>
       </div>
-      <p class="hidden lg:block text-[11px] text-slate-500">BPS Kabupaten Karangasem · WITA · SWARA v1.0</p>
+      <p class="hidden lg:block text-[11px] text-slate-300">BPS Kabupaten Karangasem · WITA · SWARA v1.0</p>
     </aside>
 
     <main class="flex items-center justify-center px-4 py-10 sm:px-8">
@@ -40,27 +50,27 @@
         <p class="text-sm text-slate-500 mt-1">Registrasi akun PML / Pengawas.</p>
 
         <div class="bg-white rounded-xl shadow-sm ring-1 ring-slate-200/70 p-6 sm:p-8 mt-6">
-          <div id="msg" class="hidden mb-4 rounded-lg px-4 py-3 text-sm font-medium"></div>
+          <div id="msg" role="alert" aria-live="assertive" class="hidden mb-4 rounded-lg px-4 py-3 text-sm font-medium"></div>
 
           <form id="form" class="space-y-4">
             <div>
               <label for="nama" class="block text-sm font-medium text-slate-700 mb-1.5">Nama Lengkap</label>
               <input id="nama" name="nama" type="text" autocomplete="name"
-                     class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                     class="w-full rounded-lg border border-slate-400 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                      placeholder="Nama PML" />
             </div>
             <div>
               <label for="email" class="block text-sm font-medium text-slate-700 mb-1.5">Email</label>
               <input id="email" name="email" type="email" required autocomplete="username"
-                     class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                     class="w-full rounded-lg border border-slate-400 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                      placeholder="nama@bps.go.id" />
             </div>
             <div>
               <label for="password" class="block text-sm font-medium text-slate-700 mb-1.5">
-                Password <span class="text-slate-400 font-normal">(min. 6 karakter)</span>
+                Password <span class="text-slate-600 font-normal">(min. 6 karakter)</span>
               </label>
               <input id="password" name="password" type="password" required minlength="6" autocomplete="new-password"
-                     class="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none"
+                     class="w-full rounded-lg border border-slate-400 px-3 py-2.5 text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                      placeholder="••••••••" />
             </div>
             <button id="submit" type="submit"
@@ -94,6 +104,7 @@
       e.preventDefault();
       const data = Object.fromEntries(new FormData(form));
       submit.disabled = true;
+      submit.setAttribute('aria-busy', 'true');
       submit.textContent = 'Memproses…';
       try {
         const res = await fetch('/signup', {
@@ -111,6 +122,7 @@
         show('Terjadi kesalahan jaringan.', false);
       } finally {
         submit.disabled = false;
+        submit.removeAttribute('aria-busy');
         submit.textContent = 'Daftar';
       }
     });

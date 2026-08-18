@@ -112,29 +112,32 @@ if (!SESSION_SECRET || _SECRET_TERLARANG.includes(SESSION_SECRET) || SESSION_SEC
 }
 
 app.set('trust proxy', 1); // di belakang tunnel/proxy (Cloudflare) -> cookie Secure benar
-app.use(
-  session({
-    store: createSqliteStore(db.db),
-    secret: SESSION_SECRET,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      maxAge: 1000 * 60 * 60 * 8,                 // sesi 8 jam
-      httpOnly: true,                              // cookie tak bisa dibaca JavaScript (anti-XSS)
-      sameSite: 'lax',
-      // 'auto' = cookie ditandai Secure HANYA bila koneksinya memang HTTPS
-      // (dideteksi dari req.secure / header X-Forwarded-Proto milik tunnel).
-      //
-      // JANGAN kembalikan ke `true` permanen (mis. lewat COOKIE_SECURE=1):
-      // express-session TIDAK mengirim header Set-Cookie sama sekali bila
-      // cookie.secure=true tetapi koneksinya HTTP biasa. Akibatnya login via
-      // http://localhost seolah "berhasil lalu balik ke halaman login" —
-      // password benar dan sesi tercatat, tetapi browser tak pernah menerima
-      // cookienya. Dengan 'auto', lokal (HTTP) dan tunnel (HTTPS) sama-sama jalan.
-      secure: 'auto',
-    },
-  })
-);
+
+// Middleware sesi disimpan ke variabel (bukan langsung dibungkus app.use) karena
+// Socket.io ikut memakainya: koneksi WebSocket harus tahu SIAPA yang terhubung,
+// supaya notifikasi real-time bisa dikirim hanya kepada pemilik datanya.
+const sessionMiddleware = session({
+  store: createSqliteStore(db.db),
+  secret: SESSION_SECRET,
+  resave: false,
+  saveUninitialized: false,
+  cookie: {
+    maxAge: 1000 * 60 * 60 * 8,                 // sesi 8 jam
+    httpOnly: true,                              // cookie tak bisa dibaca JavaScript (anti-XSS)
+    sameSite: 'lax',
+    // 'auto' = cookie ditandai Secure HANYA bila koneksinya memang HTTPS
+    // (dideteksi dari req.secure / header X-Forwarded-Proto milik tunnel).
+    //
+    // JANGAN kembalikan ke `true` permanen (mis. lewat COOKIE_SECURE=1):
+    // express-session TIDAK mengirim header Set-Cookie sama sekali bila
+    // cookie.secure=true tetapi koneksinya HTTP biasa. Akibatnya login via
+    // http://localhost seolah "berhasil lalu balik ke halaman login" —
+    // password benar dan sesi tercatat, tetapi browser tak pernah menerima
+    // cookienya. Dengan 'auto', lokal (HTTP) dan tunnel (HTTPS) sama-sama jalan.
+    secure: 'auto',
+  },
+});
+app.use(sessionMiddleware);
 app.use(passport.initialize());
 app.use(passport.session());
 
@@ -210,6 +213,8 @@ app.get('/api/me', (req, res) => {
   // ISU 1+4: kirim role & kegiatan aktif agar dashboard menyesuaikan tampilan
   res.json({
     nama: u.nama, email: u.email, role: u.role || 'PML', scope: req.scope,
+    // Ditampilkan pada panel "Profil Saya" sebagai bukti kepatuhan kerahasiaan
+    pakta_at: u.pakta_at || null, pakta_versi: u.pakta_versi || null,
     // Dashboard memakai penanda ini untuk memblokir tampilan sampai password diganti
     harus_ganti_password: !!u.harus_ganti_password,
   });
@@ -245,6 +250,21 @@ app.post('/api/ganti-password', (req, res) => {
   if (req.user) req.user.harus_ganti_password = 0; // segarkan sesi berjalan
   db.logAudit({ ...jejak(req), aksi: 'GANTI_PASSWORD', detail: 'ganti password mandiri' });
   res.json({ ok: true, message: 'Password berhasil diganti.' });
+});
+
+// Ubah data profil sendiri (nama tampilan). Dipakai menu "Profil Saya" di
+// dashboard. Email & peran SENGAJA tidak bisa diubah sendiri: email adalah kunci
+// identitas di jejak audit, dan peran adalah kewenangan yang hanya boleh
+// ditetapkan Admin lewat pembuatan akun.
+app.post('/api/profil', (req, res) => {
+  const nama = String((req.body && req.body.nama) || '').trim();
+  if (!nama) return res.status(400).json({ error: 'Nama tidak boleh kosong.' });
+  if (nama.length > 80) return res.status(400).json({ error: 'Nama maksimal 80 karakter.' });
+
+  db.updateNamaUser(req.user.id, nama);
+  if (req.user) req.user.nama = nama;   // segarkan sesi yang sedang berjalan
+  db.logAudit({ ...jejak(req), aksi: 'UBAH_PROFIL', detail: `nama menjadi "${nama}"`, jumlah: 1 });
+  res.json({ ok: true, nama });
 });
 
 // ISU 1: daftar kegiatan untuk pemilih di dashboard.
@@ -449,7 +469,9 @@ app.post('/api/blast', (req, res) => {
   db.logAudit({ ...jejak(req), aksi: 'BLAST_SEMUA', detail: 'kirim verifikasi ke seluruh PENDING', jumlah });
 
   // Jalankan di background agar HTTP tidak menunggu (blast bisa lama karena jeda)
-  wa.blastPending(pendingScoped)   // ISU 1+3: baris ter-scope + nama_survei
+  // ISU 1+3: baris ter-scope + nama_survei. Konteks pemanggil dipakai agar
+  // notifikasi "blast selesai" hanya sampai ke pemilik data + Admin.
+  wa.blastPending(pendingScoped, { pml_id: req.user.id, id_kegiatan: req.scope.id_kegiatan })
     .then((r) => console.log('[BLAST] Selesai:', r))
     .catch((e) => console.error('[BLAST] Error:', e.message));
 
@@ -504,7 +526,7 @@ app.post('/api/blast-selected', (req, res) => {
   }
   console.log(`[BLAST-SELECTED] Memulai pengiriman ke ${rowsScoped.length} responden terpilih…`);
   db.logAudit({ ...jejak(req), aksi: 'BLAST_TERPILIH', detail: `id: ${rowsScoped.map((r)=>r.id).slice(0, 20).join(',')}`, jumlah: rowsScoped.length });
-  wa.blastByIds(ids, rowsScoped)
+  wa.blastByIds(ids, rowsScoped, { pml_id: req.user.id, id_kegiatan: req.scope.id_kegiatan })
     .then((r) => console.log('[BLAST-SELECTED] Selesai:', r))
     .catch((e) => console.error('[BLAST-SELECTED] Error:', e.message));
   res.json({ ok: true, message: `Blast dimulai untuk ${ids.length} responden terpilih (jeda 5-8 detik/pesan).` });
@@ -606,22 +628,88 @@ app.get('/api/export-report', (req, res) => {
 const server = http.createServer(app);
 const io = new Server(server);
 
-io.on('connection', (socket) => {
-  // Saat client web terhubung, kirim keadaan terkini
-  if (wa.isReady()) socket.emit('wa-ready');
-  else if (wa.getLastQR()) socket.emit('wa-qr', wa.getLastQR());
+// --- ISU 3 (lanjutan): ISOLASI DATA PADA KANAL REAL-TIME ---------------------
+// Sebelumnya seluruh notifikasi dipancarkan dengan io.emit(), yaitu SIARAN ke
+// semua browser yang sedang terhubung. Akibatnya seorang PML tetap melihat
+// nama usaha & nama petugas dari baris milik Admin / PML lain begitu responden
+// membalas — kebocoran yang tidak tertutup oleh penjagaan di endpoint /api.
+//
+// Perbaikannya dua lapis:
+//   1. Socket wajib membawa sesi login yang sah (kalau tidak, langsung diputus).
+//   2. Setiap socket masuk "room" sesuai identitasnya, dan notifikasi berisi
+//      data responden hanya dikirim ke room pemilik data + room Admin.
+io.engine.use(sessionMiddleware);
+
+io.use((socket, next) => {
+  const sesi = socket.request.session;
+  const uid = sesi && sesi.passport && sesi.passport.user;   // diisi Passport saat login
+  const user = uid ? db.findUserById(uid) : null;
+  if (!user) return next(new Error('Sesi tidak sah. Silakan login kembali.'));
+  socket.data.user = { id: user.id, role: user.role, email: user.email };
+  next();
 });
 
-// Teruskan event dari gateway WhatsApp ke semua client web
-wa.bus.on('qr', (qr) => io.emit('wa-qr', qr));
+io.on('connection', (socket) => {
+  const u = socket.data.user;
+  socket.join('u:' + u.id);                      // room pribadi pemilik data
+  if (u.role === 'Admin') socket.join('admin');  // Admin mengawasi seluruh data
+
+  // Saat client web terhubung, kirim keadaan terkini.
+  // QR HANYA untuk Admin: memindainya berarti menautkan akun WhatsApp kantor
+  // sebagai gateway pengirim — kewenangan yang tidak dimiliki PML.
+  if (wa.isReady()) socket.emit('wa-ready');
+  else if (u.role === 'Admin' && wa.getLastQR()) socket.emit('wa-qr', wa.getLastQR());
+});
+
+// Kirim HANYA kepada pemilik baris + seluruh Admin (bukan siaran ke semua orang).
+// pml_id kosong (data lama tanpa pemilik) -> cukup Admin yang menerima.
+function kirimKePemilik(pmlId, event, payload) {
+  const tujuan = pmlId ? io.to('admin').to('u:' + Number(pmlId)) : io.to('admin');
+  tujuan.emit(event, payload);
+}
+
+// --- RUTE UJI ISOLASI NOTIFIKASI (mati secara bawaan) ------------------------
+// Membuktikan bahwa notifikasi real-time hanya sampai ke pemilik data + Admin,
+// TANPA perlu mengirim pesan WhatsApp ke responden sungguhan. Aktifkan sementara
+// dengan UJI_NOTIFIKASI=1 di .env, buka dua peramban (Admin & PML), lalu amati
+// siapa yang menerima toast. Cabut variabelnya setelah selesai.
+if (process.env.UJI_NOTIFIKASI === '1') {
+  console.warn('[UJI] Rute /api/_uji-notifikasi AKTIF. Cabut UJI_NOTIFIKASI dari .env setelah pengujian.');
+  app.post('/api/_uji-notifikasi', requireRole('Admin'), (req, res) => {
+    const pmlId = Number(req.body && req.body.pml_id) || null;
+    const event = (req.body && req.body.event) || 'balasan-baru';
+    if (!['balasan-baru', 'teguran-terkirim', 'blast-selesai'].includes(event)) {
+      return res.status(400).json({ error: 'event tidak dikenal.' });
+    }
+    // Muatan sengaja dibuat kentara palsu supaya tak pernah tertukar dengan data nyata.
+    const palsu = {
+      id: 0,
+      nama_usaha: 'UJI COBA — bukan data nyata',
+      nama_petugas: 'UJI COBA',
+      status: 'FRAUD',
+      total: 0, sukses: 0, gagal: 0,
+      pml_id: pmlId, id_kegiatan: req.scope.id_kegiatan,
+    };
+    kirimKePemilik(pmlId, event, palsu);
+    console.log(`[UJI] '${event}' dikirim ke room admin${pmlId ? ' + u:' + pmlId : ''}`);
+    res.json({ ok: true, event, pml_id: pmlId, penerima: pmlId ? ['admin', 'u:' + pmlId] : ['admin'] });
+  });
+}
+
+// Status gateway (siap/terputus) bukan data responden -> boleh disiarkan ke
+// semua yang login; semua peran perlu tahu apakah pesan bisa dikirim.
+// QR adalah pengecualian: ia setara kredensial penautan perangkat, jadi hanya
+// Admin yang boleh menerimanya.
+wa.bus.on('qr', (qr) => io.to('admin').emit('wa-qr', qr));
 wa.bus.on('ready', () => io.emit('wa-ready'));
 wa.bus.on('disconnected', () => io.emit('wa-disconnected'));
 
 // Notifikasi REAL-TIME ke dashboard: balasan responden, auto-teguran, blast selesai.
 // Dashboard tak perlu menunggu penyegaran 5 detik — reaksi tampak seketika.
-wa.bus.on('balasan', (d) => io.emit('balasan-baru', d));
-wa.bus.on('teguran', (d) => io.emit('teguran-terkirim', d));
-wa.bus.on('blast-selesai', (d) => io.emit('blast-selesai', d));
+// Ketiganya memuat identitas usaha/petugas, jadi WAJIB lewat kirimKePemilik().
+wa.bus.on('balasan', (d) => kirimKePemilik(d.pml_id, 'balasan-baru', d));
+wa.bus.on('teguran', (d) => kirimKePemilik(d.pml_id, 'teguran-terkirim', d));
+wa.bus.on('blast-selesai', (d) => kirimKePemilik(d.pml_id, 'blast-selesai', d));
 
 server.listen(PORT, () => {
   console.log('\n==================================================');

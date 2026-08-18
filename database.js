@@ -445,6 +445,12 @@ const tandaiHarusGantiPassword = (userId) =>
 const gantiPasswordSelesai = (userId, hash) =>
   db.prepare(`UPDATE users SET password = ?, harus_ganti_password = 0 WHERE id = ?`).run(String(hash), Number(userId));
 
+/** Ubah nama tampilan pengguna (menu "Profil Saya" di dashboard).
+ *  Email & role sengaja TIDAK ikut: email adalah kunci identitas pada jejak
+ *  audit, dan role adalah kewenangan yang hanya boleh ditetapkan Admin. */
+const updateNamaUser = (userId, nama) =>
+  db.prepare(`UPDATE users SET nama = ? WHERE id = ?`).run(String(nama).trim(), Number(userId));
+
 /** PAKTA INTEGRITAS: tandai pengguna telah menyetujui pernyataan kerahasiaan. */
 const stmtPakta = db.prepare(`UPDATE users SET pakta_at = datetime('now','localtime'), pakta_versi = ? WHERE id = ?`);
 const acceptPakta = (userId, versi) => stmtPakta.run(String(versi), userId);
@@ -537,7 +543,7 @@ module.exports = {
   logAudit,
   getAuditLog,
   acceptPakta,
-  tandaiHarusGantiPassword, gantiPasswordSelesai,
+  tandaiHarusGantiPassword, gantiPasswordSelesai, updateNamaUser,
   // ISU 3 — pasangan ter-scope; inilah yang WAJIB dipakai dari route handler.
   purgeNomorLamaScoped, getRekapSumberScoped, getSampleIdsScoped,
   resetAllScoped, resetOneScoped,

@@ -173,13 +173,21 @@ async function handleIncoming(msg) {
 
     if (body === '1') {
       db.markReply(row.id, 'VALID', body);
-      // Pancarkan ke dashboard agar muncul notifikasi seketika (real-time)
-      bus.emit('balasan', { id: row.id, nama_usaha: row.nama_usaha, nama_petugas: row.nama_petugas, status: 'VALID' });
+      // Pancarkan ke dashboard agar muncul notifikasi seketika (real-time).
+      // ISU 3: pml_id & id_kegiatan WAJIB ikut — app.js memakainya untuk menentukan
+      // siapa yang berhak menerima notifikasi ini (pemilik data + Admin saja).
+      bus.emit('balasan', {
+        id: row.id, nama_usaha: row.nama_usaha, nama_petugas: row.nama_petugas, status: 'VALID',
+        pml_id: row.pml_id, id_kegiatan: row.id_kegiatan,
+      });
       await msg.reply('Terima kasih 🙏. Jawaban Anda (kunjungan VALID) telah kami catat.\n\nSalam, *BPS Kabupaten Karangasem*.');
       console.log(`[WA] ✔ VALID  dari ${row.nama_usaha} (${waId})`);
     } else if (body === '2') {
       db.markReply(row.id, 'FRAUD', body);
-      bus.emit('balasan', { id: row.id, nama_usaha: row.nama_usaha, nama_petugas: row.nama_petugas, status: 'FRAUD' });
+      bus.emit('balasan', {
+        id: row.id, nama_usaha: row.nama_usaha, nama_petugas: row.nama_petugas, status: 'FRAUD',
+        pml_id: row.pml_id, id_kegiatan: row.id_kegiatan,
+      });
       await msg.reply('Terima kasih atas laporan Anda 🙏. Informasi ini akan kami tindak lanjuti.\n\nSalam, *BPS Kabupaten Karangasem*.');
       console.log(`[WA] ⚠ FRAUD  dari ${row.nama_usaha} (${waId})`);
 
@@ -192,7 +200,10 @@ async function handleIncoming(msg) {
         try {
           await sendPlain(row.no_hp_petugas, buildTeguran(row));
           console.log(`[AUTO-TEGURAN] Terkirim ke petugas ${row.nama_petugas} (${row.no_hp_petugas})`);
-          bus.emit('teguran', { nama_usaha: row.nama_usaha, nama_petugas: row.nama_petugas });
+          bus.emit('teguran', {
+            nama_usaha: row.nama_usaha, nama_petugas: row.nama_petugas,
+            pml_id: row.pml_id, id_kegiatan: row.id_kegiatan,   // ISU 3: penentu penerima notifikasi
+          });
         } catch (e) {
           console.error('[AUTO-TEGURAN] Gagal mengirim teguran:', e.message);
         }
@@ -256,8 +267,11 @@ function buildMessage(row) {
  * @param {Array} rows daftar responden yang akan dikirimi
  * @param {number} minDelay jeda minimum antar pesan (ms)
  * @param {number} maxDelay jeda maksimum antar pesan (ms)
+ * @param {{pml_id?:number, id_kegiatan?:number}} konteks pemicu blast — dipakai
+ *        app.js untuk mengarahkan notifikasi "blast selesai" hanya ke pemilik
+ *        data + Admin, bukan disiarkan ke seluruh dashboard yang sedang terbuka.
  */
-async function _kirimBanyak(rows, minDelay, maxDelay) {
+async function _kirimBanyak(rows, minDelay, maxDelay, konteks = {}) {
   let sukses = 0;
   let gagal = 0;
   for (const row of rows) {
@@ -275,7 +289,10 @@ async function _kirimBanyak(rows, minDelay, maxDelay) {
     // Jeda acak anti-blokir
     await sleep(rand(minDelay, maxDelay));
   }
-  bus.emit('blast-selesai', { total: rows.length, sukses, gagal });
+  bus.emit('blast-selesai', {
+    total: rows.length, sukses, gagal,
+    pml_id: konteks.pml_id || null, id_kegiatan: konteks.id_kegiatan || null,
+  });
   return { total: rows.length, sukses, gagal };
 }
 
@@ -283,11 +300,11 @@ async function _kirimBanyak(rows, minDelay, maxDelay) {
  * Kirim ke SEMUA responden berstatus PENDING (jeda 6-15 detik).
  * @returns {Promise<{total:number, sukses:number, gagal:number}>}
  */
-async function blastPending(rows) {
+async function blastPending(rows, konteks = {}) {
   if (!ready) throw new Error('Gateway WA belum siap. Scan QR terlebih dahulu.');
   // ISU 3: app.js mengirim baris yang SUDAH ter-scope (+nama_survei). Fallback ke global bila kosong.
   const target = Array.isArray(rows) ? rows : db.getPending();
-  return _kirimBanyak(target, 6000, 15000);
+  return _kirimBanyak(target, 6000, 15000, konteks);
 }
 
 /**
@@ -296,12 +313,12 @@ async function blastPending(rows) {
  * ATURAN ANTI-BANNED: jeda acak 5-8 detik antar pesan.
  * @param {number[]} ids
  */
-async function blastByIds(ids, rowsScoped) {
+async function blastByIds(ids, rowsScoped, konteks = {}) {
   if (!ready) throw new Error('Gateway WA belum siap. Scan QR terlebih dahulu.');
   // ISU 3: pakai baris ter-scope dari app.js bila diberikan (mencegah blast lintas-PML)
   const src = Array.isArray(rowsScoped) ? rowsScoped : db.getByIds(ids);
   const rows = src.filter((r) => r.status === 'PENDING' || r.status === 'GAGAL');
-  return _kirimBanyak(rows, 5000, 8000);
+  return _kirimBanyak(rows, 5000, 8000, konteks);
 }
 
 // --- INISIALISASI (dengan penanganan error sesi rusak) -----------------------
