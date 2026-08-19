@@ -273,11 +273,41 @@ app.get('/api/kegiatan', (req, res) => res.json(db.listKegiatanForUser(req.user)
 // Admin dapat menambah kegiatan baru
 app.post('/api/kegiatan', requireRole('Admin'), (req, res) => {
   try {
-    const { kode, nama } = req.body || {};
+    const { kode, nama, template_pesan } = req.body || {};
     if (!kode || !nama) return res.status(400).json({ error: 'Kode dan nama kegiatan wajib diisi.' });
-    const id = db.createKegiatan({ kode, nama });
+    const id = db.createKegiatan({ kode, nama, template_pesan });
     res.status(201).json({ ok: true, id });
   } catch (e) { res.status(400).json({ error: e.message }); }
+});
+
+// Template pesan verifikasi milik satu kegiatan (khusus Admin).
+// Isi pesan sangat menentukan mau-tidaknya responden membalas, sehingga tiap
+// survei boleh punya redaksi sendiri: SE2026 menyapa pelaku usaha, sedangkan
+// Sakernas/Susenas menyapa rumah tangga. Kosongkan = kembali ke template bawaan.
+app.post('/api/kegiatan/:id/template', requireRole('Admin'), (req, res) => {
+  const id = Number(req.params.id);
+  if (!id || !db.getKegiatan(id)) return res.status(404).json({ error: 'Kegiatan tidak ditemukan.' });
+
+  const isi = String((req.body && req.body.template_pesan) || '').trim();
+  if (isi.length > 1200) {
+    return res.status(400).json({ error: 'Template terlalu panjang (maksimal 1200 karakter).' });
+  }
+  // Pesan tanpa instruksi 1/2 membuat balasan tak terbaca sistem: handleIncoming
+  // hanya mengenali angka 1 dan 2; selain itu responden dijawab "mohon balas angka".
+  if (isi && !(isi.includes('1') && isi.includes('2'))) {
+    return res.status(400).json({
+      error: 'Template harus tetap meminta responden membalas angka 1 (ya) dan 2 (tidak) — di luar itu balasan tidak dikenali sistem.',
+    });
+  }
+
+  const tersimpan = db.setTemplateKegiatan(id, isi);
+  db.logAudit({ ...jejak(req), aksi: 'UBAH_TEMPLATE', detail: `kegiatan#${id} -> ${tersimpan ? 'template khusus' : 'kembali ke bawaan'}`, jumlah: 1 });
+  res.json({ ok: true, template_pesan: tersimpan });
+});
+
+// Template bawaan, untuk ditawarkan sebagai titik awal saat Admin menyunting.
+app.get('/api/template-bawaan', requireRole('Admin'), (req, res) => {
+  res.json({ template_pesan: wa.TEMPLATE_BAWAAN });
 });
 
 // --- KELOLA KEANGGOTAAN PML (khusus Admin) ---
@@ -448,7 +478,18 @@ app.post('/api/upload', upload.single('file'), (req, res) => {
 // -----------------------------------------------------------------------------
 // API: BLAST (fire-and-forget)
 // Mengembalikan respons langsung; progres tercermin di tabel saat status berubah.
+//
+// Nomor gateway hanya SATU untuk seluruh PML, jadi seluruh blast dijalankan
+// berurutan lewat antrean global di wa-client.js. Bila sedang ada blast lain,
+// pesan balasan memberi tahu berapa pesan yang menunggu di depan — supaya PML
+// tidak mengira tombolnya tidak berfungsi lalu menekannya berulang kali.
 // -----------------------------------------------------------------------------
+function pesanAntrean(dasar, antre) {
+  if (!antre || antre.pesanDiDepan <= 0) return `${dasar} Pantau progres pada tabel di bawah.`;
+  return `${dasar} Masuk antrean: ada ${antre.pesanDiDepan} pesan di depan Anda ` +
+         `(perkiraan mulai ~${antre.estimasiMenit} menit lagi). Pengiriman berjalan otomatis, tidak perlu ditekan ulang.`;
+}
+
 app.post('/api/blast', (req, res) => {
   const siap = wa.isReady();
   const pendingScoped = db.getPendingScoped(req.scope);   // ISU 3: hanya data dalam scope
@@ -468,6 +509,9 @@ app.post('/api/blast', (req, res) => {
   console.log(`[BLAST] Memulai pengiriman ke ${jumlah} responden…`);
   db.logAudit({ ...jejak(req), aksi: 'BLAST_SEMUA', detail: 'kirim verifikasi ke seluruh PENDING', jumlah });
 
+  // Dibaca SEBELUM menambah tugas, sehingga angkanya benar-benar "di depan Anda".
+  const antre = wa.antreanInfo();
+
   // Jalankan di background agar HTTP tidak menunggu (blast bisa lama karena jeda)
   // ISU 1+3: baris ter-scope + nama_survei. Konteks pemanggil dipakai agar
   // notifikasi "blast selesai" hanya sampai ke pemilik data + Admin.
@@ -477,7 +521,8 @@ app.post('/api/blast', (req, res) => {
 
   res.json({
     ok: true,
-    message: `Blast dimulai untuk ${jumlah} responden. Pantau progres pada tabel di bawah.`,
+    antrean: antre,
+    message: pesanAntrean(`Blast dimulai untuk ${jumlah} responden.`, antre),
   });
 });
 
@@ -526,10 +571,16 @@ app.post('/api/blast-selected', (req, res) => {
   }
   console.log(`[BLAST-SELECTED] Memulai pengiriman ke ${rowsScoped.length} responden terpilih…`);
   db.logAudit({ ...jejak(req), aksi: 'BLAST_TERPILIH', detail: `id: ${rowsScoped.map((r)=>r.id).slice(0, 20).join(',')}`, jumlah: rowsScoped.length });
+
+  const antre = wa.antreanInfo();   // dibaca sebelum tugas ini masuk barisan
   wa.blastByIds(ids, rowsScoped, { pml_id: req.user.id, id_kegiatan: req.scope.id_kegiatan })
     .then((r) => console.log('[BLAST-SELECTED] Selesai:', r))
     .catch((e) => console.error('[BLAST-SELECTED] Error:', e.message));
-  res.json({ ok: true, message: `Blast dimulai untuk ${ids.length} responden terpilih (jeda 5-8 detik/pesan).` });
+  res.json({
+    ok: true,
+    antrean: antre,
+    message: pesanAntrean(`Blast dimulai untuk ${rowsScoped.length} responden terpilih (jeda 5-8 detik/pesan).`, antre),
+  });
 });
 
 // -----------------------------------------------------------------------------

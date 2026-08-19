@@ -71,6 +71,16 @@ db.exec(`
     created_at TEXT NOT NULL DEFAULT (datetime('now','localtime'))
   );
 `);
+
+// Template pesan verifikasi PER KEGIATAN. Isi pesan sangat menentukan mau atau
+// tidaknya responden membalas: SE2026 menyapa pelaku usaha, sedangkan Sakernas
+// dan Susenas menyapa rumah tangga — kata "usaha" pada survei rumah tangga
+// membuat pesan terasa salah alamat dan menurunkan response rate.
+// NULL = pakai template bawaan di wa-client.js (buildMessage).
+const _kolomKegiatan = db.prepare(`PRAGMA table_info(kegiatan)`).all();
+if (!_kolomKegiatan.some((k) => k.name === 'template_pesan')) {
+  db.exec(`ALTER TABLE kegiatan ADD COLUMN template_pesan TEXT`);
+}
 // Seed satu kegiatan default bila kosong (agar data lama tetap punya induk)
 const _adaKeg = db.prepare(`SELECT COUNT(*) c FROM kegiatan`).get().c;
 if (!_adaKeg) db.prepare(`INSERT INTO kegiatan (kode, nama) VALUES (?, ?)`).run('UMUM', 'Kegiatan Pendataan BPS');
@@ -264,7 +274,7 @@ function getPendingScoped(scope) {
   const { where, p } = _scopeSQL(scope, {}, 'r'); // alias 'r.' agar cocok dengan JOIN
   // ISU 1: sertakan nama_survei (untuk template pesan WA dinamis)
   return db.prepare(`
-    SELECT r.*, k.nama AS nama_survei
+    SELECT r.*, k.nama AS nama_survei, k.kode AS kode_survei, k.template_pesan
     FROM responden r LEFT JOIN kegiatan k ON k.id = r.id_kegiatan
     WHERE r.status='PENDING' AND ${where} ORDER BY r.id ASC`).all(p);
 }
@@ -275,7 +285,7 @@ function getByIdsScoped(ids, scope) {
   if (!list.length) return [];
   const ph = list.map(() => '?').join(',');
   const params = [...list, Number(scope.id_kegiatan) || 1]; // posisional: id..., id_kegiatan
-  let sql = `SELECT r.*, k.nama AS nama_survei FROM responden r LEFT JOIN kegiatan k ON k.id = r.id_kegiatan WHERE r.id IN (${ph}) AND r.id_kegiatan = ?`;
+  let sql = `SELECT r.*, k.nama AS nama_survei, k.kode AS kode_survei, k.template_pesan FROM responden r LEFT JOIN kegiatan k ON k.id = r.id_kegiatan WHERE r.id IN (${ph}) AND r.id_kegiatan = ?`;
   if (scope && scope.pml_id != null) { sql += ' AND r.pml_id = ?'; params.push(Number(scope.pml_id)); } // ISU 3
   return db.prepare(sql).all(...params);
 }
@@ -314,9 +324,21 @@ function listPmlDenganKegiatan() {
 }
 const getKegiatan    = (id) => db.prepare(`SELECT * FROM kegiatan WHERE id = ?`).get(Number(id));
 const getKegiatanAktif = () => db.prepare(`SELECT * FROM kegiatan WHERE aktif = 1 ORDER BY id DESC LIMIT 1`).get();
-function createKegiatan({ kode, nama }) {
-  const info = db.prepare(`INSERT INTO kegiatan (kode, nama) VALUES (?, ?)`).run(String(kode).trim().toUpperCase(), String(nama).trim());
+function createKegiatan({ kode, nama, template_pesan = null }) {
+  const info = db.prepare(`INSERT INTO kegiatan (kode, nama, template_pesan) VALUES (?, ?, ?)`).run(
+    String(kode).trim().toUpperCase(),
+    String(nama).trim(),
+    template_pesan ? String(template_pesan).trim() : null,
+  );
   return Number(info.lastInsertRowid);
+}
+
+/** Ubah template pesan verifikasi sebuah kegiatan.
+ *  String kosong / null dikembalikan ke NULL agar jatuh ke template bawaan. */
+function setTemplateKegiatan(id, template) {
+  const isi = template && String(template).trim() ? String(template).trim() : null;
+  db.prepare(`UPDATE kegiatan SET template_pesan = ? WHERE id = ?`).run(isi, Number(id));
+  return isi;
 }
 const resetAll          = () => stmtResetAll.run();
 const resetOne          = (id) => stmtResetOne.run(id);
@@ -532,7 +554,7 @@ function getSampleIdsScoped(n = 10, scope = {}) {
 module.exports = {
   db,
   getAllScoped, getStatsScoped, getByIdScoped, getPendingScoped,   // ISU 3
-  listKegiatan, getKegiatan, getKegiatanAktif, createKegiatan,      // ISU 1
+  listKegiatan, getKegiatan, getKegiatanAktif, createKegiatan, setTemplateKegiatan, // ISU 1
   getKegiatanIdsForPml, pmlPunyaKegiatan, listKegiatanForUser,     // keanggotaan PML
   daftarkanPml, keluarkanPml, listPmlDenganKegiatan,
   getByIdsScoped,

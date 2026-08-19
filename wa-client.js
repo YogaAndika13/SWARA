@@ -250,16 +250,51 @@ async function sendPlain(rawNumber, text) {
   return client.sendMessage(`${wa_id}@c.us`, text);
 }
 
-/** Susun isi pesan verifikasi untuk satu responden. */
-function buildMessage(row) {
-  const survei = row.nama_survei || 'pendataan BPS';   // ISU 1: dinamis per kegiatan
-  return (
-    `Halo dari *BPS Kabupaten Karangasem*.\n\n` +
-    `Dalam rangka *${survei}*, apakah benar petugas *${row.nama_petugas}* telah ` +
-    `mewawancarai Anda (usaha: *${row.nama_usaha}*) hari ini?\n\n` +
-    `Balas *1* jika YA, balas *2* jika TIDAK.\n\n` +
-    `Terima kasih atas partisipasi Anda. 🇮🇩`
+// -----------------------------------------------------------------------------
+// TEMPLATE PESAN PER KEGIATAN
+// -----------------------------------------------------------------------------
+// Isi pesan menentukan mau-tidaknya responden membalas. Satu template untuk semua
+// survei tidak memadai: SE2026 menyapa pelaku usaha, sedangkan Sakernas/Susenas
+// menyapa rumah tangga — menyebut "usaha" pada survei rumah tangga membuat pesan
+// terasa salah alamat, dan responden cenderung mengabaikannya.
+//
+// Kegiatan boleh menyimpan template sendiri di kolom kegiatan.template_pesan.
+// Bila NULL, dipakai TEMPLATE_BAWAAN di bawah.
+//
+// Placeholder yang dikenali (huruf kecil, dalam kurung kurawal):
+//   {nama_usaha}    nama usaha / rumah tangga / responden
+//   {nama_petugas}  nama petugas yang mengaku berkunjung
+//   {nama_survei}   nama kegiatan, mis. "Sensus Ekonomi 2026"
+//   {kode_survei}   kode kegiatan, mis. "SE2026"
+// Placeholder yang TIDAK dikenali dibiarkan apa adanya, supaya salah ketik
+// terlihat jelas saat diuji dan bukan menghilang diam-diam jadi string kosong.
+const TEMPLATE_BAWAAN =
+  `Halo dari *BPS Kabupaten Karangasem*.\n\n` +
+  `Dalam rangka *{nama_survei}*, apakah benar petugas *{nama_petugas}* telah ` +
+  `mewawancarai Anda (usaha: *{nama_usaha}*) hari ini?\n\n` +
+  `Balas *1* jika YA, balas *2* jika TIDAK.\n\n` +
+  `Terima kasih atas partisipasi Anda. 🇮🇩`;
+
+/** Ganti placeholder {…} pada template dengan data satu responden. */
+function isiTemplate(template, row) {
+  const nilai = {
+    nama_usaha: row.nama_usaha || '-',
+    nama_petugas: row.nama_petugas || '-',
+    nama_survei: row.nama_survei || 'pendataan BPS',
+    kode_survei: row.kode_survei || '-',
+  };
+  return String(template).replace(/\{(\w+)\}/g, (utuh, kunci) =>
+    Object.prototype.hasOwnProperty.call(nilai, kunci) ? nilai[kunci] : utuh,
   );
+}
+
+/** Susun isi pesan verifikasi untuk satu responden.
+ *  Memakai template milik kegiatannya bila ada; bila tidak, template bawaan. */
+function buildMessage(row) {
+  const template = row.template_pesan && String(row.template_pesan).trim()
+    ? String(row.template_pesan)
+    : TEMPLATE_BAWAAN;
+  return isiTemplate(template, row);
 }
 
 /**
@@ -271,7 +306,7 @@ function buildMessage(row) {
  *        app.js untuk mengarahkan notifikasi "blast selesai" hanya ke pemilik
  *        data + Admin, bukan disiarkan ke seluruh dashboard yang sedang terbuka.
  */
-async function _kirimBanyak(rows, minDelay, maxDelay, konteks = {}) {
+async function _kirimBanyak(rows, minDelay, maxDelay, konteks = {}, tugas = null) {
   let sukses = 0;
   let gagal = 0;
   for (const row of rows) {
@@ -286,7 +321,9 @@ async function _kirimBanyak(rows, minDelay, maxDelay, konteks = {}) {
       gagal++;
       console.error(`[BLAST] ✖ Gagal ke ${row.wa_id}:`, err.message);
     }
-    // Jeda acak anti-blokir
+    if (tugas) tugas.selesai++;
+    // Jeda acak anti-blokir. Sengaja dijalankan JUGA setelah pesan terakhir:
+    // itulah yang memberi jarak aman ke tugas berikutnya dalam antrean.
     await sleep(rand(minDelay, maxDelay));
   }
   bus.emit('blast-selesai', {
@@ -296,29 +333,101 @@ async function _kirimBanyak(rows, minDelay, maxDelay, konteks = {}) {
   return { total: rows.length, sukses, gagal };
 }
 
+// -----------------------------------------------------------------------------
+// ANTREAN GLOBAL PENGIRIMAN
+// -----------------------------------------------------------------------------
+// Gateway-nya SATU nomor untuk seluruh PML. Tanpa antrean, dua PML yang menekan
+// Blast bersamaan menjalankan dua perulangan serentak lewat klien yang sama:
+// jeda 6-15 detik memang masih berlaku PER perulangan, tetapi jarak antar pesan
+// yang benar-benar keluar dari nomor gateway terbelah — 2 PML jadi ~3-7 detik,
+// 3 PML jadi ~2-5 detik. Itu persis yang hendak dicegah oleh jeda acak
+// anti-blokir, dan karena nomornya dipakai bersama, satu pemblokiran WhatsApp
+// menghentikan pekerjaan semua orang sekaligus.
+//
+// Karena itu semua blast masuk SATU barisan dan dijalankan berurutan.
+// Auto-Teguran dan laporan harian lewat sendPlain() TIDAK diantrekan: keduanya
+// pesan tunggal, dan teguran harus tiba seketika saat responden menjawab "2".
+
+const _antrean = [];       // tugas yang masih menunggu giliran
+let _tugasAktif = null;    // tugas yang sedang berjalan (null = menganggur)
+let _rantai = Promise.resolve();
+let _nomorTugas = 0;
+
+/**
+ * Ringkasan antrean saat ini. Dipakai app.js untuk memberi tahu pemanggil berapa
+ * pesan yang harus menunggu di depannya.
+ * PANGGIL SEBELUM menambah tugas baru, supaya angkanya benar-benar "di depan Anda".
+ * @returns {{sibuk:boolean, tugasMenunggu:number, pesanDiDepan:number, estimasiMenit:number}}
+ */
+function antreanInfo() {
+  const menungguPesan = _antrean.reduce((n, t) => n + t.jumlah, 0);
+  const sisaAktif = _tugasAktif ? Math.max(0, _tugasAktif.jumlah - _tugasAktif.selesai) : 0;
+  const pesanDiDepan = sisaAktif + menungguPesan;
+  return {
+    sibuk: !!_tugasAktif,
+    tugasMenunggu: _antrean.length,
+    pesanDiDepan,
+    // Perkiraan kasar memakai rata-rata jeda blast (~10,5 detik/pesan).
+    estimasiMenit: Math.ceil((pesanDiDepan * 10.5) / 60),
+  };
+}
+
+/** Masukkan satu tugas kirim ke antrean global; dijalankan saat gilirannya tiba. */
+function _antrekan(tugas, kerja) {
+  _antrean.push(tugas);
+  const jalan = _rantai.then(async () => {
+    const i = _antrean.indexOf(tugas);
+    if (i >= 0) _antrean.splice(i, 1);
+    _tugasAktif = tugas;
+    console.log(`[ANTREAN] Mulai ${tugas.label} — ${tugas.jumlah} pesan. Sisa menunggu: ${_antrean.length} tugas.`);
+    try {
+      return await kerja(tugas);
+    } finally {
+      _tugasAktif = null;
+      console.log(`[ANTREAN] Selesai ${tugas.label}.`);
+    }
+  });
+  // Satu tugas yang gagal tidak boleh memutus rantai tugas berikutnya.
+  _rantai = jalan.then(() => {}, () => {});
+  return jalan;
+}
+
 /**
  * Kirim ke SEMUA responden berstatus PENDING (jeda 6-15 detik).
+ * Masuk antrean global; promise selesai setelah gilirannya benar-benar dijalankan.
  * @returns {Promise<{total:number, sukses:number, gagal:number}>}
  */
-async function blastPending(rows, konteks = {}) {
-  if (!ready) throw new Error('Gateway WA belum siap. Scan QR terlebih dahulu.');
+function blastPending(rows, konteks = {}) {
+  if (!ready) return Promise.reject(new Error('Gateway WA belum siap. Scan QR terlebih dahulu.'));
   // ISU 3: app.js mengirim baris yang SUDAH ter-scope (+nama_survei). Fallback ke global bila kosong.
   const target = Array.isArray(rows) ? rows : db.getPending();
-  return _kirimBanyak(target, 6000, 15000, konteks);
+  const tugas = {
+    id: ++_nomorTugas,
+    label: `Blast Semua #${_nomorTugas} (PML#${konteks.pml_id ?? '-'})`,
+    jumlah: target.length,
+    selesai: 0,
+  };
+  return _antrekan(tugas, () => _kirimBanyak(target, 6000, 15000, konteks, tugas));
 }
 
 /**
  * FITUR BARU: Kirim hanya ke responden TERPILIH (berdasarkan array id).
  * Hanya baris yang belum terjawab (PENDING/GAGAL) yang dikirim.
- * ATURAN ANTI-BANNED: jeda acak 5-8 detik antar pesan.
+ * ATURAN ANTI-BANNED: jeda acak 5-8 detik antar pesan, dan ikut antrean global.
  * @param {number[]} ids
  */
-async function blastByIds(ids, rowsScoped, konteks = {}) {
-  if (!ready) throw new Error('Gateway WA belum siap. Scan QR terlebih dahulu.');
+function blastByIds(ids, rowsScoped, konteks = {}) {
+  if (!ready) return Promise.reject(new Error('Gateway WA belum siap. Scan QR terlebih dahulu.'));
   // ISU 3: pakai baris ter-scope dari app.js bila diberikan (mencegah blast lintas-PML)
   const src = Array.isArray(rowsScoped) ? rowsScoped : db.getByIds(ids);
   const rows = src.filter((r) => r.status === 'PENDING' || r.status === 'GAGAL');
-  return _kirimBanyak(rows, 5000, 8000, konteks);
+  const tugas = {
+    id: ++_nomorTugas,
+    label: `Blast Terpilih #${_nomorTugas} (PML#${konteks.pml_id ?? '-'})`,
+    jumlah: rows.length,
+    selesai: 0,
+  };
+  return _antrekan(tugas, () => _kirimBanyak(rows, 5000, 8000, konteks, tugas));
 }
 
 // --- INISIALISASI (dengan penanganan error sesi rusak) -----------------------
@@ -344,5 +453,9 @@ module.exports = {
   getLastQR: () => lastQR,
   blastPending,
   blastByIds,
+  antreanInfo,
   sendPlain,
+  // Diekspor untuk pratinjau template di dashboard (Admin) — tanpa mengirim apa pun.
+  buildMessage,
+  TEMPLATE_BAWAAN,
 };
