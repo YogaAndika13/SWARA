@@ -1,5 +1,8 @@
 node_modules/
-.wwebjs_auth/
+# Sesi WhatsApp = kredensial. Pola berakhiran * agar folder cadangan sesi lama
+# (mis. .wwebjs_auth.lama-YYYY-MM-DD/ saat gateway direset) ikut terabaikan —
+# tanpa itu, satu `git add -A` bisa mem-push sesi WhatsApp ke repo publik.
+.wwebjs_auth*/
 .wwebjs_cache/
 data/*.sqlite
 data/*.sqlite-*
