@@ -49,7 +49,7 @@ title SWARA + Tunnel - BPS Karangasem
 cd /d "%~dp0"
 
 REM --- Nama tunnel bernama. Kosongkan untuk memakai quick tunnel sementara. ---
-set "TUNNEL_NAME=swara"
+set "TUNNEL_NAME="
 
 if not exist "data" mkdir "data"
 

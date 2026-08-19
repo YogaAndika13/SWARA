@@ -28,7 +28,7 @@ Berjalan penuh di satu PC kantor.
 
 ## Struktur Folder
 ```
-bps-audit-se2026/
+SWARA/
 ├── app.js                  # Server Express + seluruh endpoint API
 ├── database.js             # SQLite (node:sqlite): skema, migrasi, query ter-scope
 ├── wa-client.js            # Gateway WhatsApp (QR, listener balasan, blast, auto-teguran)
@@ -77,7 +77,7 @@ bps-audit-se2026/
 ## Instalasi
 
 ```bash
-cd bps-audit-se2026
+cd SWARA
 npm install
 ```
 
