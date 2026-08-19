@@ -12,6 +12,7 @@
  */
 
 const path = require('path');
+const fs = require('fs');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const express = require('express');
@@ -42,8 +43,34 @@ function pesanError(err) {
 }
 
 // --- HALAMAN -----------------------------------------------------------------
-router.get('/login', (req, res) => res.sendFile(view('login.html')));
-router.get('/signup', (req, res) => res.sendFile(view('signup.html')));
+// Tombol "Masuk dengan Google" hanya bermakna bila OAuth benar-benar
+// dikonfigurasi. Tanpa GOOGLE_CLIENT_ID, /auth/google menjawab 503 berupa teks
+// polos tanpa tautan kembali — jalan buntu. Blok itu dibuang di sisi server
+// (bukan disembunyikan lewat JS) supaya tidak ada kedipan tombol saat memuat.
+let cacheLogin = null;
+function halamanLogin() {
+  if (cacheLogin) return cacheLogin;
+  let html = fs.readFileSync(view('login.html'), 'utf8');
+  if (!process.env.GOOGLE_CLIENT_ID) {
+    // Dipotong dengan indexOf/slice, bukan regex: penanda ini harfiah dan
+    // pemotongan tanpa pola membuat maksudnya langsung terbaca.
+    const awal = html.indexOf('<!-- GOOGLE:MULAI');
+    const tanda = 'GOOGLE:SELESAI -->';
+    const akhir = html.indexOf(tanda);
+    if (awal !== -1 && akhir !== -1) html = html.slice(0, awal) + html.slice(akhir + tanda.length);
+  }
+  cacheLogin = html;
+  return cacheLogin;
+}
+router.get('/login', (req, res) => res.type('html').send(halamanLogin()));
+// Halaman swa-daftar hanya berguna bila POST /signup juga menerimanya. Tanpa
+// penjagaan ini pengguna mengisi formulir sampai habis lalu ditolak 403 saat
+// mengirim — jalan buntu senyap yang sama seperti dashboard kosong pada PML
+// yang belum didaftarkan ke kegiatan mana pun.
+router.get('/signup', (req, res) => {
+  if (process.env.ALLOW_SIGNUP !== '1') return res.redirect('/login');
+  res.sendFile(view('signup.html'));
+});
 router.get('/forgot', (req, res) => res.sendFile(view('forgot.html')));
 router.get('/reset/:token', (req, res) => res.sendFile(view('reset.html')));
 

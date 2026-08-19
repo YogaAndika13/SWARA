@@ -13,13 +13,43 @@ kemudian saat pemeriksaan dokumen.
 
 ## 1. Masuk ke Sistem
 
-1. Buka **http://localhost:3000** di peramban (Chrome/Edge).
+1. Buka alamat SWARA di peramban (Chrome/Edge). **Alamatnya berbeda tergantung
+   Anda ada di mana** — tanyakan kepada Admin alamat mana yang berlaku:
+
+   | Anda berada di | Alamat |
+   |---|---|
+   | Komputer server itu sendiri | `http://localhost:3000` |
+   | Jaringan wifi kantor | `http://<IP-komputer-server>:3000`, mis. `http://10.0.0.50:3000` |
+   | Di lapangan / paket data HP | `https://swara.<domain-kantor>` (lewat terowongan Cloudflare) |
+
 2. Masukkan email dan password yang diberikan Admin.
 3. Bila ini login pertama Anda dengan password bawaan, sistem akan **meminta Anda
    membuat password baru** (minimal 8 karakter) sebelum bisa melanjutkan.
 
-> **Lupa password?** Tidak ada pengiriman surel di sistem ini. Hubungi Admin —
-> hanya Admin yang dapat membantu memulihkan akses.
+> **Sesi Anda berlaku 8 jam.** Setelah itu Anda diminta login lagi. Itu normal,
+> bukan tanda ada kerusakan.
+
+### Lupa password
+
+Sistem ini **tidak mengirim surel**. Prosedurnya:
+
+1. Klik **Lupa password** di halaman login, lalu masukkan email Anda.
+2. Halaman menjawab bahwa tautan reset telah dibuat. **Tautan itu tidak dikirim
+   ke mana pun** — ia hanya tercatat di komputer server.
+3. **Hubungi Admin** (telepon/WA). Admin membuka berkas `data\swara.log` di
+   komputer server dan mencari baris terbaru yang berbunyi:
+
+   ```
+   [RESET PASSWORD] Link reset untuk nama.anda@bps.go.id (berlaku 1 jam):
+   https://swara.<domain-kantor>/reset/<kode-panjang>
+   ```
+
+4. Admin menyampaikan tautan itu kepada Anda. Anda membukanya, lalu mengisi
+   password baru (minimal 6 karakter).
+
+> Tautan **berlaku 1 jam** dan sekali pakai. Bila kedaluwarsa, ulangi dari
+> langkah 1. Jangan meneruskan tautan itu kepada siapa pun — siapa saja yang
+> memegangnya dapat mengambil alih akun Anda.
 
 ### Pakta Integritas
 Setelah masuk, muncul **Pakta Integritas Kerahasiaan Data**. Bacalah, lalu centang
@@ -32,8 +62,8 @@ persetujuan Anda tercatat, dan seluruh aktivitas Anda terekam dalam jejak audit.
 
 | Bagian | Isi |
 |---|---|
-| **Rail kiri (gelap)** | Perpindahan antar tampilan: Ringkasan, Data Responden, Jalur Hijau, Indikasi Fraud. Di bawahnya ada nama dan peran Anda. |
-| **Topbar** | Judul, **pemilih kegiatan/survei**, status gateway WhatsApp, dan identitas Anda. |
+| **Rail kiri (gelap)** | **Pemilih kegiatan/survei**, lalu perpindahan antar tampilan: Ringkasan, Data Responden, Jalur Hijau, Indikasi Fraud. Di bawahnya ada nama dan peran Anda. |
+| **Topbar** | Tombol lipat rail, judul halaman, status gateway WhatsApp, dan menu profil Anda. |
 | **Kartu statistik** | Terkirim, Valid, Indikasi Fraud, Response Rate, Belum Dikirim. |
 | **Komposisi Respons** | Diagram donat sebaran status seluruh responden. |
 | **Data Verifikasi Responden** | Tabel utama tempat Anda bekerja. |
@@ -51,8 +81,8 @@ persetujuan Anda tercatat, dan seluruh aktivitas Anda terekam dalam jejak audit.
 
 ## 3. Memilih Kegiatan yang Benar
 
-Sebelum apa pun, pastikan **pemilih kegiatan di topbar** menunjuk survei yang sedang
-Anda kerjakan. Seluruh angka, tabel, impor, dan ekspor mengikuti kegiatan yang dipilih.
+Sebelum apa pun, pastikan **pemilih kegiatan di rail kiri** menunjuk survei yang
+sedang Anda kerjakan. Seluruh angka, tabel, impor, dan ekspor mengikuti kegiatan yang dipilih.
 
 Anda hanya melihat kegiatan tempat Anda didaftarkan. Bila kegiatan yang seharusnya
 ada tidak muncul, mintalah Admin mendaftarkan Anda lewat menu **Kelola PML**.
@@ -177,6 +207,52 @@ Klik **Ekspor** untuk mengunduh CSV. Beberapa hal yang perlu Anda ketahui:
 
 ---
 
+## 11. Memakai SWARA dari HP di Lapangan
+
+Bila Admin sudah menyalakan alamat publik (terowongan Cloudflare), SWARA dapat
+dibuka dari HP mana pun dengan paket data — tidak perlu berada di kantor.
+
+**Yang perlu diketahui:**
+
+- Bukalah lewat **Chrome/Safari biasa**, bukan aplikasi khusus. Tidak ada aplikasi
+  yang perlu dipasang.
+- Di layar HP, **rail kiri disembunyikan**. Ketuk **ikon tiga garis** di pojok kiri
+  topbar untuk memunculkannya (termasuk pemilih kegiatan); tutup lagi dengan ikon
+  ✕ di dalamnya, dengan mengetuk area gelap di sebelahnya, atau tombol Esc.
+- Tabel bergeser ke samping — geser dengan jari untuk melihat kolom yang
+  tersembunyi.
+- Simpan alamatnya sebagai **pintasan di layar utama HP** agar tidak perlu
+  mengetik ulang.
+
+**Yang sebaiknya tetap dikerjakan dari komputer:**
+
+| Kegiatan | Alasan |
+|---|---|
+| Upload CSV | Memilih berkas dan menyiapkannya di Excel jauh lebih mudah di komputer. |
+| Blast dalam jumlah besar | Prosesnya lama (jeda 6–15 detik per pesan). Jalankan dari komputer, pantau hasilnya dari HP. |
+| Ekspor laporan | Berkas CSV rahasia — lebih aman diunduh ke komputer kantor daripada ke HP pribadi. |
+
+**Yang paling berguna dikerjakan dari HP:** memantau tab **Indikasi Fraud**,
+menindaklanjuti temuan saat masih di lapangan, dan menambah responden satu-dua
+lewat **Tambah Manual**.
+
+> ### Keamanan saat memakai HP
+>
+> - **Jangan** menyimpan password SWARA di HP yang dipakai bersama orang lain.
+> - Selesai bekerja, tekan **Keluar** dari menu profil. Jangan hanya menutup tab —
+>   sesi Anda masih hidup sampai 8 jam.
+> - Membuka nomor telepon lengkap (ikon mata) **tetap tercatat di jejak audit**,
+>   sama seperti dari komputer. Jangan membukanya sambil ditonton orang lain.
+> - Jangan memotret layar berisi nomor responden lalu mengirimnya lewat grup WA.
+>   Data ini dilindungi UU 16/1997 dan UU 27/2022.
+
+> **Alamatnya berubah-ubah?** Bila Admin memakai terowongan sementara
+> (`*.trycloudflare.com`), alamatnya memang berganti setiap kali server dinyalakan
+> ulang. Mintalah alamat terbaru kepada Admin, atau mintalah Admin memakai nama
+> domain tetap agar alamatnya tidak berubah lagi.
+
+---
+
 ## Pertanyaan yang Sering Muncul
 
 **Responden membalas selain 1 atau 2 — bagaimana?**
@@ -188,7 +264,7 @@ perlu mengirim ulang, gunakan **Reset** — tetapi ingat, Reset menghapus hasil
 balasan Valid/Fraud yang sudah masuk pada kegiatan tersebut.
 
 **Data saya tidak muncul.**
-Periksa pemilih kegiatan di topbar. Bila masih kosong, mintalah Admin memastikan
+Periksa pemilih kegiatan di rail kiri. Bila masih kosong, mintalah Admin memastikan
 Anda terdaftar pada kegiatan itu.
 
 **Apakah komputer harus menyala terus?**

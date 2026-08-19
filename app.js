@@ -668,34 +668,6 @@ function kirimKePemilik(pmlId, event, payload) {
   tujuan.emit(event, payload);
 }
 
-// --- RUTE UJI ISOLASI NOTIFIKASI (mati secara bawaan) ------------------------
-// Membuktikan bahwa notifikasi real-time hanya sampai ke pemilik data + Admin,
-// TANPA perlu mengirim pesan WhatsApp ke responden sungguhan. Aktifkan sementara
-// dengan UJI_NOTIFIKASI=1 di .env, buka dua peramban (Admin & PML), lalu amati
-// siapa yang menerima toast. Cabut variabelnya setelah selesai.
-if (process.env.UJI_NOTIFIKASI === '1') {
-  console.warn('[UJI] Rute /api/_uji-notifikasi AKTIF. Cabut UJI_NOTIFIKASI dari .env setelah pengujian.');
-  app.post('/api/_uji-notifikasi', requireRole('Admin'), (req, res) => {
-    const pmlId = Number(req.body && req.body.pml_id) || null;
-    const event = (req.body && req.body.event) || 'balasan-baru';
-    if (!['balasan-baru', 'teguran-terkirim', 'blast-selesai'].includes(event)) {
-      return res.status(400).json({ error: 'event tidak dikenal.' });
-    }
-    // Muatan sengaja dibuat kentara palsu supaya tak pernah tertukar dengan data nyata.
-    const palsu = {
-      id: 0,
-      nama_usaha: 'UJI COBA — bukan data nyata',
-      nama_petugas: 'UJI COBA',
-      status: 'FRAUD',
-      total: 0, sukses: 0, gagal: 0,
-      pml_id: pmlId, id_kegiatan: req.scope.id_kegiatan,
-    };
-    kirimKePemilik(pmlId, event, palsu);
-    console.log(`[UJI] '${event}' dikirim ke room admin${pmlId ? ' + u:' + pmlId : ''}`);
-    res.json({ ok: true, event, pml_id: pmlId, penerima: pmlId ? ['admin', 'u:' + pmlId] : ['admin'] });
-  });
-}
-
 // Status gateway (siap/terputus) bukan data responden -> boleh disiarkan ke
 // semua yang login; semua peran perlu tahu apakah pesan bisa dikirim.
 // QR adalah pengecualian: ia setara kredensial penautan perangkat, jadi hanya

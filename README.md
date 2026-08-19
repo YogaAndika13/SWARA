@@ -34,6 +34,7 @@ bps-audit-se2026/
 ├── wa-client.js            # Gateway WhatsApp (QR, listener balasan, blast, auto-teguran)
 ├── scheduler.js            # Cron: laporan harian + cadangan basis data
 ├── start-swara.bat         # Jalankan & nyalakan ulang otomatis (Windows)
+├── start-swara-tunnel.bat  # Idem + terowongan Cloudflare (akses dari luar kantor)
 ├── package.json
 ├── .env.example            # Contoh konfigurasi -> salin jadi .env
 ├── sample_responden.csv    # Contoh data untuk uji impor
@@ -56,7 +57,8 @@ bps-audit-se2026/
 └── data/
     ├── audit.sqlite        # Basis data (dibuat otomatis)
     ├── backup/             # Cadangan harian audit-YYYY-MM-DD.sqlite
-    └── swara.log           # Log runtime bila dijalankan via start-swara.bat
+    ├── swara.log           # Log runtime bila dijalankan via start-swara.bat
+    └── tunnel.log          # Log terowongan + ALAMAT PUBLIK (start-swara-tunnel.bat)
 ```
 
 ---
@@ -110,6 +112,27 @@ status di dashboard berubah hijau. Sesi tersimpan di `.wwebjs_auth/`, jadi pemin
 hanya sekali.
 
 **Buka dashboard:** <http://localhost:3000>
+
+### Diakses dari komputer/HP lain
+
+`localhost` hanya berlaku di komputer server itu sendiri. Untuk pengguna lain:
+
+| Pengguna berada di | Yang perlu disiapkan |
+|---|---|
+| **Jaringan kantor** | Beri komputer server IP tetap (DHCP reservation di router), lalu buka port di Windows Firewall: `New-NetFirewallRule -DisplayName "SWARA 3000" -Direction Inbound -LocalPort 3000 -Protocol TCP -Action Allow -Profile Private`. Pengguna membuka `http://<IP-server>:3000`. |
+| **Lapangan (paket data)** | Jalankan **`start-swara-tunnel.bat`** — ia menyalakan server *dan* terowongan Cloudflare sekaligus. Tidak perlu IP publik maupun membuka port router. Persiapan `cloudflared` dijelaskan di dalam berkas itu; alamat publiknya muncul di `data\tunnel.log`. |
+
+Aplikasi sudah siap untuk skenario terowongan: `app.set('trust proxy', 1)` dan
+`cookie.secure = 'auto'` membuat cookie sesi benar baik lewat HTTP lokal maupun
+HTTPS tunnel, dan tautan reset password otomatis memakai alamat publik yang aktif.
+
+> **Keamanan:** begitu alamat publik hidup, halaman login terbuka bagi siapa pun yang
+> mengetahui alamatnya. Pasang **Cloudflare Access** (gratis s.d. 50 pengguna) di
+> depannya agar hanya surel terdaftar yang dapat mencapai halaman login.
+>
+> Bila `GOOGLE_CLIENT_ID`/`SECRET` diisi, `GOOGLE_CALLBACK_URL` **wajib** diubah ke
+> alamat publik dan didaftarkan ulang di Google Cloud Console — bila tidak, login
+> Google gagal dengan `redirect_uri_mismatch`.
 
 > Baris `ExperimentalWarning: SQLite is an experimental feature` saat start adalah
 > **normal** — hanya penanda bahwa SQLite bawaan Node masih berstatus eksperimental.

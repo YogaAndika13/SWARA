@@ -87,7 +87,11 @@
   </style>
 </head>
 
-<body class="bg-slate-100 text-slate-800 antialiased" x-data="auditApp()" x-init="init()" x-cloak>
+<!-- x-init="init()" SENGAJA TIDAK DIPAKAI: Alpine sudah memanggil sendiri method
+     init() yang ada di dalam objek x-data. Menuliskannya lagi di sini membuat
+     komponen ter-inisialisasi DUA KALI — dua instance Chart.js (galat "Canvas is
+     already in use"), dua timer refresh 5 detik, dan dua listener hashchange. -->
+<body class="bg-slate-100 text-slate-800 antialiased" x-data="auditApp()" x-cloak>
 
   <!-- A11Y-6 — TAUTAN LEWATI NAVIGASI (WCAG 2.4.1 Bypass Blocks).
        Pengguna keyboard & pembaca layar tidak perlu menelusuri seluruh menu rail
@@ -698,7 +702,7 @@
           <ol class="flex items-center gap-1.5 text-sm">
             <li class="text-slate-600 hidden sm:block">SWARA</li>
             <li class="text-slate-500 hidden sm:block" aria-hidden="true">/</li>
-            <li class="text-slate-600 truncate" x-text="kegiatanAktif ? kegiatanAktif.kode : 'Umum'"></li>
+            <li class="text-slate-600 truncate" x-text="kegiatanAktif ? kegiatanAktif.kode : '—'"></li>
             <li class="text-slate-500" aria-hidden="true">/</li>
             <li class="font-bold text-slate-900 truncate" x-text="metaView.judul"></li>
           </ol>
@@ -1748,7 +1752,11 @@
         // Tombol menu Administrasi: sebagian membuka modal, sebagian pindah halaman
         aksiMenuAdmin(id) {
           this.sidebarBuka = false;
-          if (id === 'kelola-survei') return (this.showKegiatan = true);
+          if (id === 'kelola-survei') {
+            this.showKegiatan = true;
+            this.fokusAwalDialog('#keg-kode');
+            return;
+          }
           if (id === 'kelola-pml') return this.bukaKelolaPml();
           this.pilihView(id);
         },
@@ -1774,6 +1782,7 @@
           this.pwProfilGalat = ''; this.pwProfilPesan = '';
           this.formProfil.nama = this.me.nama || '';
           this.showProfil = true;
+          this.fokusAwalDialog('#profil-nama');
         },
         tutupMenuProfil() {
           if (!this.menuProfil) return;
@@ -2021,6 +2030,7 @@
             this.pmlList = await fetch('/api/pml').then((r) => r.json());
             this.kegiatanList = await fetch('/api/kegiatan').then((r) => r.json());
             this.showPml = true;
+            this.fokusAwalDialog('#pml-nama');
           } catch (e) { this.toast('Gagal memuat data PML: ' + e.message, 'gagal'); }
         },
 
@@ -2327,6 +2337,32 @@
             info:       'M11.25 11.25l.041-.02a.75.75 0 011.063.852l-.708 2.836a.75.75 0 001.063.853l.041-.021M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9-3.75h.008v.008H12V8.25z',
           }[v] || 'M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0z';
           return '<svg ' + w + '><path stroke-linecap="round" stroke-linejoin="round" d="' + p + '" /></svg>';
+        },
+
+        // ---- FOKUS AWAL DIALOG ----
+        // x-trap sudah mengunci fokus di dalam modal, TETAPI pada dialog yang
+        // ditampilkan lewat x-show elemennya belum tampil saat jebakan aktif,
+        // sehingga fokus awal gagal dipasang dan tetap tertinggal di tombol
+        // pemicu — pengguna pembaca layar tidak pernah 'masuk' ke dialognya.
+        fokusAwalDialog(selector) {
+          // Sekali tembak tidak cukup: x-trap memakai focus-trap yang MENUNDA
+          // fokus awalnya sendiri (delayInitialFocus) ke setTimeout(0) juga.
+          // Bila jebakan itu dihitung saat dialog masih tersembunyi, upayanya
+          // gagal dan justru menimpa fokus yang baru saja kita pasang — hasilnya
+          // fokus tertinggal di tombol pemicu secara acak. Karena itu kita ulangi
+          // sampai fokus benar-benar berada DI DALAM dialog (maks. ~1 detik).
+          let sisa = 20;
+          const coba = () => {
+            const kotak = [...document.querySelectorAll('[role=dialog]')].find((d) => d.getClientRects().length);
+            if (kotak && kotak.contains(document.activeElement)) return;   // sudah di dalam
+            if (kotak) {
+              let el = selector ? kotak.querySelector(selector) : null;
+              if (!el || !el.getClientRects().length) el = kotak.querySelector("input:not([type=hidden]), select, textarea, button, [href], [tabindex]:not([tabindex=\"-1\"])");
+              if (el && el.getClientRects().length) el.focus();
+            }
+            if (--sisa > 0) setTimeout(coba, 50);
+          };
+          setTimeout(coba, 0);
         },
 
         // ---- DIALOG KONFIRMASI: pengganti confirm() ----
